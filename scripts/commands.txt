@@ -1,0 +1,1 @@
+bin/lens_immiscible_ecfv_ad  --grid-global-refinements=1 --enable-grid-adaptation=true --enable-async-vtk-output=false

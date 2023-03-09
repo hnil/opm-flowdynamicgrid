@@ -142,6 +142,30 @@ set_property(TARGET moduleVersionExp PROPERTY POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_PROJECT_NAME "${PROJECT_NAME}")
 add_custom_target(opm-flowdynamicgrid_prepare)
 
+opm_add_test(lens_immiscible_ecfv_ad_alu
+             TEST_ARGS --end-time=3000)
+opm_add_test(reservoir_blackoil_ecfv_alu
+	TEST_ARGS --end-time=8750000)
+
+opm_add_test(flow_blackoil_alugrid_exp
+  ONLY_COMPILE
+  ALWAYS_ENABLE
+  DEPENDS opmsimulators
+  LIBRARIES opmsimulators
+  SOURCES
+  tests/flow_blackoil_alugrid_exp.cpp
+  $<TARGET_OBJECTS:moduleVersion>)
+
+opm_add_test(ebos_alugrid
+  ONLY_COMPILE
+  ALWAYS_ENABLE
+  DEPENDS opmsimulators
+  LIBRARIES opmsimulators
+  SOURCES
+  tests/ebos_alugrid.cpp
+  $<TARGET_OBJECTS:moduleVersion>)
+
+
 # if(dune-alugrid_FOUND)
 #   if (NOT BUILD_FLOW_ALU_GRID)
 #     set(FLOW_ALUGRID_ONLY_DEFAULT_ENABLE_IF "FALSE")
