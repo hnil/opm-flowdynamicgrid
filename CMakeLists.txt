@@ -154,7 +154,8 @@ opm_add_test(flow_blackoil_alugrid_exp
   LIBRARIES opmsimulators
   SOURCES
   tests/flow_blackoil_alugrid_exp.cpp
-  $<TARGET_OBJECTS:moduleVersion>)
+  $<TARGET_OBJECTS:moduleVersionExp>)
+target_compile_definitions(flow_blackoil_alugrid_exp PRIVATE USE_ALUGRID)
 
 opm_add_test(ebos_alugrid
   ONLY_COMPILE
@@ -163,7 +164,7 @@ opm_add_test(ebos_alugrid
   LIBRARIES opmsimulators
   SOURCES
   tests/ebos_alugrid.cpp
-  $<TARGET_OBJECTS:moduleVersion>)
+  $<TARGET_OBJECTS:moduleVersionExp>)
 
 
 # if(dune-alugrid_FOUND)
@@ -181,7 +182,7 @@ opm_add_test(ebos_alugrid
 #     LIBRARIES opmsimulators
 #     SOURCES
 #     flow/flow_blackoil_alugrid.cpp
-#     $<TARGET_OBJECTS:moduleVersion>)
+#     $<TARGET_OBJECTS:moduleVersionExp>)
 #   target_compile_definitions(flow_alugrid PRIVATE USE_ALUGRID)
 # endif()
 

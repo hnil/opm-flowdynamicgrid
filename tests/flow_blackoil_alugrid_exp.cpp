@@ -18,17 +18,48 @@
 */
 #include "config.h"
 #include <opm/simulators/flow/Main.hpp>
+#include <opm/models/common/transfluxmodule.hh>
+#include <opm/models/discretization/ecfv/ecfvdiscretization.hh>
+#include <dune/alugrid/grid.hh>
 namespace Opm{
     template<typename TypeTag>
     class EclProblemNew: public EclProblem<TypeTag>{
         using Simulator = GetPropType<TypeTag, Properties::Simulator>;
         using Evaluation = GetPropType<TypeTag, Properties::Evaluation>;
+        using Indices = GetPropType<TypeTag, Properties::Indices>;
+        static constexpr bool waterEnabled = Indices::waterEnabled;
+        static constexpr bool gasEnabled = Indices::gasEnabled;
+        static constexpr bool oilEnabled = Indices::oilEnabled;
         using DirectionalMobilityPtr = ::Opm::Utility::CopyablePtr<DirectionalMobility<TypeTag, Evaluation>>;
         using MaterialLaw = GetPropType<TypeTag, Properties::MaterialLaw>;
         using FluidSystem = GetPropType<TypeTag, Properties::FluidSystem>;
+        using PrimaryVariables = GetPropType<TypeTag, Properties::PrimaryVariables>;
+        using Grid = GetPropType<TypeTag, Properties::Grid>;
+        using EquilGrid = GetPropType<TypeTag, Properties::EquilGrid>;
+        using CartesianIndexMapper = Dune::CartesianIndexMapper<Grid>;
+        using WaterMeaning = typename PrimaryVariables::WaterMeaning;
+        using PressureMeaning = typename PrimaryVariables::PressureMeaning;
+        using GasMeaning = typename PrimaryVariables::GasMeaning;
+        enum class PrimaryVarsMeaning {
+        WaterMeaning,  //Sw, Rvw, Rsw, disabled; (Water Meaning)
+        PressureMeaning, // Po, Pg, Pw, disable; (Pressure Meaning)
+        GasMeaning, // Rg, Rs, Rvm disabled; (Gas Meaning)
+        Undef, // The primary variable is not used
+        };
+
+        struct ProblemContainer {
+               PrimaryVarsMeaning pm;
+               int origGridIndex;
+              };
+    using GlobalContainer = Dune::PersistentContainer< Grid, ProblemContainer>;
+    using RestrictProlongOperator = CopyRestrictProlong< Grid, GlobalContainer >;
+//private:
+    using Scalar = GetPropType<TypeTag, Properties::Scalar>;
+    using GridView = GetPropType<TypeTag, Properties::GridView>;
         enum { numPhases = FluidSystem::numPhases };
-    public:
-        EclProblemNew(Simulator& simulator): EclProblem<TypeTag>(simulator){
+    GlobalContainer container_;
+public:
+        EclProblemNew(Simulator& simulator): EclProblem<TypeTag>(simulator), container_(simulator.vanguard().grid(), 0 ){
         }
         template <class FluidState>
         void updateRelperms(
@@ -55,6 +86,11 @@ struct EclFlowProblemAlugrid {
     using InheritsFrom = std::tuple<EclFlowProblem>;
 };
 }
+   template<class TypeTag>
+    struct Grid<TypeTag, TTag::EclFlowProblemAlugrid> {
+        static const int dim = 3;
+        using type = Dune::ALUGrid<dim, dim, Dune::cube, Dune::nonconforming >;
+    };
     template<class TypeTag>
     struct Problem<TypeTag, TTag::EclFlowProblemAlugrid> {
         using type = EclProblemNew<TypeTag>;
@@ -64,6 +100,29 @@ template<class TypeTag>
 struct EclEnableAquifers<TypeTag, TTag::EclFlowProblemAlugrid> {
     static constexpr bool value = false;
 };
+//template <class TypeTag>
+//struct FluxModule<TypeTag, TTag::EclFlowProblemAlugrid> {
+//    using type = Opm::TransFluxModule<TypeTag>;
+//};
+template<class TypeTag>
+struct LocalLinearizerSplice<TypeTag, TTag::EclFlowProblemAlugrid> { using type = TTag::AutoDiffLocalLinearizer; };
+// use the element centered finite volume spatial discretization
+template<class TypeTag>
+struct SpatialDiscretizationSplice<TypeTag, TTag::EclFlowProblemAlugrid> { using type = TTag::EcfvDiscretization; };
+// By default, include the intrinsic permeability tensor to the VTK output files
+template<class TypeTag>
+struct VtkWriteIntrinsicPermeabilities<TypeTag, TTag::EclFlowProblemAlugrid> { static constexpr bool value = true; };
+
+// enable the storage cache by default for this problem
+template<class TypeTag>
+struct EnableStorageCache<TypeTag, TTag::EclFlowProblemAlugrid> { static constexpr bool value = true; };
+
+// enable the cache for intensive quantities by default for this problem
+template<class TypeTag>
+struct EnableIntensiveQuantityCache<TypeTag, TTag::EclFlowProblemAlugrid> { static constexpr bool value = true; };
+// this problem works fine if the linear solver uses single precision scalars
+template<class TypeTag>
+struct LinearSolverScalar<TypeTag, TTag::EclFlowProblemAlugrid> { using type = float; };
 }
 }
 int main(int argc, char** argv)

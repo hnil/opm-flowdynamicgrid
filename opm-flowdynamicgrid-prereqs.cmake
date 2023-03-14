@@ -43,7 +43,7 @@ set (opm-flowdynamicgrid_DEPS
   "opm-simulators REQUIRED"
   "Damaris 1.7"
   "HDF5"  
-  "Tracy REQUIRED"
+  #"Tracy REQUIRED"
   )
 
 find_package_deps(opm-flowdynamicgrid)
