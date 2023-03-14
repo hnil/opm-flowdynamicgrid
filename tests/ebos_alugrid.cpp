@@ -24,7 +24,7 @@
 
 #include <opm/models/blackoil/blackoillocalresidualtpfa.hh>
 #include <opm/models/discretization/common/tpfalinearizer.hh>
-#include <opm/flowexperimental/blackoilintensivequantitiessimple.hh> 
+//#include <opm/flowexperimental/blackoilintensivequantitiessimple.hh> 
   
 // the current code use eclnewtonmethod adding other conditions to proceed_ should do the trick for KA
 // adding linearshe sould be chaning the update_ function in the same class with condition that the error is reduced.
