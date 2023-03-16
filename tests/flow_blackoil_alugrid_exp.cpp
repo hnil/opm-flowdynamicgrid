@@ -21,6 +21,13 @@
 #include <opm/models/common/transfluxmodule.hh>
 #include <opm/models/discretization/ecfv/ecfvdiscretization.hh>
 #include <dune/alugrid/grid.hh>
+#include <ebos/eclproblem.hh>
+#include <opm/flowdynamicgrid/eclproblemdynamic.hh>
+#include <opm/simulators/flow/Main.hpp>
+#include <opm/models/blackoil/blackoillocalresidualtpfa.hh>
+#include <opm/models/discretization/common/fvbaselinearizer.hh>
+#include <opm/models/discretization/common/fvbaseintensivequantities.hh>
+//#include <opm/material/fluidmatrixinteractions/EclMaterialLawManagerTable.hpp>
 namespace Opm{
     template<typename TypeTag>
     class EclProblemNew: public EclProblem<TypeTag>{
@@ -55,7 +62,6 @@ namespace Opm{
     using RestrictProlongOperator = CopyRestrictProlong< Grid, GlobalContainer >;
 //private:
     using Scalar = GetPropType<TypeTag, Properties::Scalar>;
-    using GridView = GetPropType<TypeTag, Properties::GridView>;
         enum { numPhases = FluidSystem::numPhases };
     GlobalContainer container_;
 public:
@@ -77,6 +83,41 @@ public:
                 Valgrind::CheckDefined(mobility);
             }
         };
+};
+       template<typename TypeTag>
+    class BlackOilModelDynamic: public BlackOilModel<TypeTag>{
+        using Parent = BlackOilModel<TypeTag>;
+        using GridView = GetPropType<TypeTag, Properties::GridView>;
+        using Element = typename GridView::template Codim<0>::Entity;
+        using ElementContext = GetPropType<TypeTag, Properties::ElementContext>;
+        using ElementIterator = typename GridView::template Codim<0>::Iterator;
+        using Simulator = GetPropType<TypeTag, Properties::Simulator>;
+        using IntensiveQuantities = GetPropType<TypeTag, Properties::IntensiveQuantities>;
+        enum {
+        historySize = getPropValue<TypeTag, Properties::TimeDiscHistorySize>(),
+        };
+    public:
+        BlackOilModelDynamic(Simulator& simulator): BlackOilModel<TypeTag>(simulator){
+        }
+    void invalidateAndUpdateIntensiveQuantities(unsigned timeIdx) const
+    {
+                OPM_TIMEBLOCK_LOCAL(invalidateAndUpdateIntensiveQuantities);
+       Parent::invalidateIntensiveQuantitiesCache(timeIdx);
+    }
+
+      void addAuxiliaryModule(BaseAuxiliaryModule<TypeTag>* auxMod)
+    {
+        OPM_TIMEBLOCK_LOCAL(addAuxiliaryModule);
+        auxMod->setDofOffset(this->numTotalDof());
+        this->auxEqModules_.push_back(auxMod);
+
+
+        size_t numDof = this->numTotalDof();
+        for (unsigned timeIdx = 0; timeIdx < this->historySize; ++timeIdx)
+            this->solution(timeIdx).resize(numDof);
+
+        auxMod->applyInitial();
+    }
     };
 }
 namespace Opm {
@@ -86,6 +127,27 @@ struct EclFlowProblemAlugrid {
     using InheritsFrom = std::tuple<EclFlowProblem>;
 };
 }
+ template<class TypeTag>
+ struct Stencil<TypeTag, TTag::EclFlowProblemAlugrid>
+ {
+ private:
+     using Scalar = GetPropType<TypeTag, Properties::Scalar>;
+     using GridView = GetPropType<TypeTag, Properties::GridView>;
+
+ public:
+     using type = EcfvStencil<Scalar,
+                              GridView,
+                              /*needIntegrationPos=*/true,
+                              /*needIntegrationPos=*/true>;
+ };
+    template<class TypeTag>
+    struct Model<TypeTag, TTag::EclFlowProblemAlugrid> {
+        using type = BlackOilModelDynamic<TypeTag>;
+    };
+    template<class TypeTag>
+    struct SpatialDiscretizationSplice<TypeTag, TTag::EclFlowProblemAlugrid> {
+        using type = TTag::EcfvDiscretization;
+    };
    template<class TypeTag>
     struct Grid<TypeTag, TTag::EclFlowProblemAlugrid> {
         static const int dim = 3;
@@ -93,22 +155,16 @@ struct EclFlowProblemAlugrid {
     };
     template<class TypeTag>
     struct Problem<TypeTag, TTag::EclFlowProblemAlugrid> {
-        using type = EclProblemNew<TypeTag>;
+        using type = EclProblemDynamic<TypeTag>;
     };
     
 template<class TypeTag>
 struct EclEnableAquifers<TypeTag, TTag::EclFlowProblemAlugrid> {
     static constexpr bool value = false;
 };
-//template <class TypeTag>
-//struct FluxModule<TypeTag, TTag::EclFlowProblemAlugrid> {
-//    using type = Opm::TransFluxModule<TypeTag>;
-//};
+// use automatic differentiation for this simulator
 template<class TypeTag>
 struct LocalLinearizerSplice<TypeTag, TTag::EclFlowProblemAlugrid> { using type = TTag::AutoDiffLocalLinearizer; };
-// use the element centered finite volume spatial discretization
-template<class TypeTag>
-struct SpatialDiscretizationSplice<TypeTag, TTag::EclFlowProblemAlugrid> { using type = TTag::EcfvDiscretization; };
 // By default, include the intrinsic permeability tensor to the VTK output files
 template<class TypeTag>
 struct VtkWriteIntrinsicPermeabilities<TypeTag, TTag::EclFlowProblemAlugrid> { static constexpr bool value = true; };
@@ -123,6 +179,10 @@ struct EnableIntensiveQuantityCache<TypeTag, TTag::EclFlowProblemAlugrid> { stat
 // this problem works fine if the linear solver uses single precision scalars
 template<class TypeTag>
 struct LinearSolverScalar<TypeTag, TTag::EclFlowProblemAlugrid> { using type = float; };
+template <class TypeTag>
+struct FluxModule<TypeTag, TTag::EclFlowProblemAlugrid> {
+    using type = TransFluxModule<TypeTag>;
+};
 }
 }
 int main(int argc, char** argv)
