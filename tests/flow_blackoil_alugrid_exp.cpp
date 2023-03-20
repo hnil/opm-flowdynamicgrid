@@ -31,6 +31,8 @@
 namespace Opm{
     template<typename TypeTag>
     class EclProblemNew: public EclProblem<TypeTag>{
+        using Parent = EclProblem<TypeTag>;
+        using ParentType = GetPropType<TypeTag, Properties::BaseProblem>;
         using Simulator = GetPropType<TypeTag, Properties::Simulator>;
         using Evaluation = GetPropType<TypeTag, Properties::Evaluation>;
         using Indices = GetPropType<TypeTag, Properties::Indices>;
@@ -44,28 +46,9 @@ namespace Opm{
         using Grid = GetPropType<TypeTag, Properties::Grid>;
         using EquilGrid = GetPropType<TypeTag, Properties::EquilGrid>;
         using CartesianIndexMapper = Dune::CartesianIndexMapper<Grid>;
-        using WaterMeaning = typename PrimaryVariables::WaterMeaning;
-        using PressureMeaning = typename PrimaryVariables::PressureMeaning;
-        using GasMeaning = typename PrimaryVariables::GasMeaning;
-        enum class PrimaryVarsMeaning {
-        WaterMeaning,  //Sw, Rvw, Rsw, disabled; (Water Meaning)
-        PressureMeaning, // Po, Pg, Pw, disable; (Pressure Meaning)
-        GasMeaning, // Rg, Rs, Rvm disabled; (Gas Meaning)
-        Undef, // The primary variable is not used
-        };
-
-        struct ProblemContainer {
-               PrimaryVarsMeaning pm;
-               int origGridIndex;
-              };
-    using GlobalContainer = Dune::PersistentContainer< Grid, ProblemContainer>;
-    using RestrictProlongOperator = CopyRestrictProlong< Grid, GlobalContainer >;
-//private:
-    using Scalar = GetPropType<TypeTag, Properties::Scalar>;
         enum { numPhases = FluidSystem::numPhases };
-    GlobalContainer container_;
 public:
-        EclProblemNew(Simulator& simulator): EclProblem<TypeTag>(simulator), container_(simulator.vanguard().grid(), 0 ){
+        EclProblemNew(Simulator& simulator): EclProblem<TypeTag>(simulator){
         }
         template <class FluidState>
         void updateRelperms(
@@ -92,6 +75,7 @@ public:
         using ElementContext = GetPropType<TypeTag, Properties::ElementContext>;
         using ElementIterator = typename GridView::template Codim<0>::Iterator;
         using Simulator = GetPropType<TypeTag, Properties::Simulator>;
+        using FluidSystem = GetPropType<TypeTag, Properties::FluidSystem>;
         using IntensiveQuantities = GetPropType<TypeTag, Properties::IntensiveQuantities>;
         enum {
         historySize = getPropValue<TypeTag, Properties::TimeDiscHistorySize>(),
@@ -101,10 +85,10 @@ public:
         }
     void invalidateAndUpdateIntensiveQuantities(unsigned timeIdx) const
     {
-                OPM_TIMEBLOCK_LOCAL(invalidateAndUpdateIntensiveQuantities);
+       OPM_TIMEBLOCK_LOCAL(invalidateAndUpdateIntensiveQuantities);
        Parent::invalidateIntensiveQuantitiesCache(timeIdx);
     }
-
+// Overwriting that function to avoid throwing error when having dune-fem
       void addAuxiliaryModule(BaseAuxiliaryModule<TypeTag>* auxMod)
     {
         OPM_TIMEBLOCK_LOCAL(addAuxiliaryModule);
