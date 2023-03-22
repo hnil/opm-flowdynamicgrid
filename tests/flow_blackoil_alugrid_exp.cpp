@@ -83,11 +83,11 @@ public:
     public:
         BlackOilModelDynamic(Simulator& simulator): BlackOilModel<TypeTag>(simulator){
         }
-    void invalidateAndUpdateIntensiveQuantities(unsigned timeIdx) const
-    {
-       OPM_TIMEBLOCK_LOCAL(invalidateAndUpdateIntensiveQuantities);
-       Parent::invalidateIntensiveQuantitiesCache(timeIdx);
-    }
+ //   void invalidateAndUpdateIntensiveQuantities(unsigned timeIdx) const
+//    {
+//       OPM_TIMEBLOCK_LOCAL(invalidateAndUpdateIntensiveQuantities);
+//       Parent::invalidateIntensiveQuantitiesCache(timeIdx);
+//    }
 // Overwriting that function to avoid throwing error when having dune-fem
       void addAuxiliaryModule(BaseAuxiliaryModule<TypeTag>* auxMod)
     {
@@ -101,6 +101,24 @@ public:
             this->solution(timeIdx).resize(numDof);
 
         auxMod->applyInitial();
+    }
+ void invalidateAndUpdateIntensiveQuantities(unsigned timeIdx) const
+    {
+       OPM_TIMEBLOCK_LOCAL(invalidateAndUpdateIntensiveQuantities);
+       Parent::invalidateAndUpdateIntensiveQuantities(timeIdx);
+       // loop over all elements...
+    //   ThreadedEntityIterator<GridView, /*codim=*/0> threadedElemIt(this->gridView_);
+//#ifdef _OPENMP
+//#pragma omp parallel
+//#endif
+ //    const auto& gridView = this->gridView_;
+ //       ElementContext elemCtx(this->simulator_);
+ //       for (const auto& elem : elements(this->simulator_.vanguard().gridView(), Dune::Partitions::all)) {
+ //       unsigned eee = this->simulator_.problem().globalToEclIndex(elem);
+ //           elemCtx.updatePrimaryStencil(eee);
+ //           int elemIdx = elemCtx.globalSpaceIndex(/*spaceIdx=*/0, /*timeIdx=*/0);
+ //              elemCtx.updatePrimaryIntensiveQuantities(/*timeIdx=*/0);
+ //       }
     }
     };
 }

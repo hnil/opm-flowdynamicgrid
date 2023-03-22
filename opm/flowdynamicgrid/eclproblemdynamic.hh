@@ -692,6 +692,7 @@ class EclProblemDynamic : public GetPropType<TypeTag, Properties::BaseProblem>
                GasMeaning gm;
                int preAdaptIndex;
                MaterialLawParams matLawParams;
+               bool isCellPerforation;
               };
     using Grid = GetPropType<TypeTag, Properties::Grid>;
     using GlobalContainer = Dune::PersistentContainer< Grid, ProblemContainer>;
@@ -889,6 +890,8 @@ public:
         };
         #endif // USE_ALUGRID
         transmissibilities_.finishInit(gridToEquilGrid);
+// REQUIRED FOR ADAPTIVITY
+        fillContainerForGridAdaptation();
 
         const auto& initconfig = eclState.getInitConfig();
         tracerModel_.init(initconfig.restartRequested());
@@ -945,12 +948,11 @@ public:
             simulator.startNextEpisode(schedule.seconds(1));
             simulator.setEpisodeIndex(0);
         }
-// REQUIRED FOR ADAPTIVITY
-        fillContainerForGridAdaptation();
     }
 
     void gridChanged()
     {
+        this->model().finishInit();
         ParentType::gridChanged();
         const auto& vanguard = this->simulator().vanguard();
         unsigned ntpvt = vanguard.eclState().runspec().tabdims().getNumPVTTables();
@@ -966,40 +968,83 @@ public:
         this->simulator().vanguard().updateCellDepths_();
         this->simulator().vanguard().updateCellThickness_();
         this->readRockParameters_(this->simulator().vanguard().cellCenterDepths());
-        readMaterialParameters_();
-        readThermalParameters_();
+        updateMaterialParameters_();
+        //readMaterialParameters_();
+        //readThermalParameters_();
+        wellModel_.gridChanged();
     }
 
 void fillContainerForGridAdaptation()
     {
-         this->simulator().model().invalidateAndUpdateIntensiveQuantities(/*timeIdx=*/0);
         container_.resize();
         ElementContext elemCtx( this->simulator() );
         auto gridView = this->simulator().vanguard().gridView();
         int numElements = gridView.size(/*codim=*/0);
         preAdaptGridIndex_.resize(numElements);
-        auto& grid = this->simulator().vanguard().grid();
         auto& sol = this->model().solution(/*timeIdx=*/0);
         for(const auto& elem: elements(gridView, Dune::Partitions::interior)) {
             elemCtx.updatePrimaryStencil(elem);
             int elemIdx = elemCtx.globalSpaceIndex(/*dofIdx=*/0, /*timeIdx=*/0);
-
             const auto& priVars = elemCtx.primaryVars(/*spaceIdx=*/0, /*timeIdx=*/0);
             container_[elem].wm = sol[elemIdx].primaryVarsMeaningWater();
             container_[elem].pm = sol[elemIdx].primaryVarsMeaningPressure();
             container_[elem].gm = sol[elemIdx].primaryVarsMeaningGas();
             container_[elem].matLawParams = materialLawParams(elemIdx);
             container_[elem].preAdaptIndex = elemIdx;
+            //container_[elem].isCellPerforated = wellModel().isCellPerforated(elemIdx);
             preAdaptGridIndex_[elemIdx]=elemIdx;
         }
     
     }
-//    if constexpr (enableBrine) {
-//            if (enableSaltPrecipitation && values.primaryVarsMeaningBrine() == PrimaryVariables::BrineMeaning::Sp) {
 
  unsigned markForGridAdaptation()
     {
-        ParentType::markForGridAdaptation();
+        unsigned numMarked = 0;
+        ElementContext elemCtx( this->simulator() );
+        auto gridView = this->simulator().vanguard().gridView();
+        auto& grid = this->simulator().vanguard().grid();
+        for(const auto& elem: elements(gridView, Dune::Partitions::interior))
+        {
+            elemCtx.updateAll(elem);
+            int elemIdx = elemCtx.globalSpaceIndex(/*dofIdx=*/0, /*timeIdx=*/0);
+            if (wellModel().isCellPerforated(elemIdx))
+                continue;
+
+            // HACK: this should better be part of an AdaptionCriterion class
+            for (unsigned phaseIdx = 0; phaseIdx < numPhases; ++phaseIdx) {
+                if (!FluidSystem::phaseIsActive(phaseIdx))
+                    continue;
+                Scalar minSat = 1e100 ;
+                Scalar maxSat = -1e100;
+                size_t nDofs = elemCtx.numDof(/*timeIdx=*/0);
+                for (unsigned dofIdx = 0; dofIdx < nDofs; ++dofIdx)
+                {
+                    const auto& intQuant = elemCtx.intensiveQuantities( dofIdx, /*timeIdx=*/0 );
+                    minSat = std::min(minSat,
+                                      Toolbox::value(intQuant.fluidState().saturation(phaseIdx)));
+                    maxSat = std::max(maxSat,
+                                      Toolbox::value(intQuant.fluidState().saturation(phaseIdx)));
+                }
+
+                const Scalar indicator =
+                    (maxSat - minSat)/(std::max<Scalar>(0.01, maxSat+minSat)/2);
+                if( indicator > 0.2 && elem.level() < 2 ) {
+                    grid.mark( 1, elem );
+                    ++ numMarked;
+
+                    std::cout << "refine cell " << nDofs << std::endl;
+                }
+                else
+                {
+                    grid.mark( 0, elem );
+                }
+            }
+        }
+
+        // get global sum so that every proc is on the same page
+        numMarked = this->simulator().vanguard().grid().comm().sum( numMarked );
+
+        return numMarked;
     }
 RestrictProlongOperator restrictProlongOperator()
     {
@@ -1204,6 +1249,16 @@ RestrictProlongOperator restrictProlongOperator()
 
         auto& simulator = this->simulator();
         wellModel_.endTimeStep();
+
+        ElementContext elemCtx(simulator);
+        auto gridView = this->simulator().vanguard().gridView();
+        const auto& elementMapper = this->model().elementMapper();
+        for(const auto& elem: elements(gridView, Dune::Partitions::interior)) {
+            elemCtx.updatePrimaryStencil(elem);
+            int elemIdx = elemCtx.globalSpaceIndex(/*dofIdx=*/0, /*timeIdx=*/0);
+            container_[elem].isCellPerforation = wellModel().isCellPerforated(elemIdx);
+        }
+    
         if (enableAquifers_)
             aquiferModel_.endTimeStep();
         tracerModel_.endTimeStep();
@@ -1517,6 +1572,10 @@ RestrictProlongOperator restrictProlongOperator()
         return materialLawManager_->materialLawParams(globalDofIdx, facedir);
     }
 
+    void setMaterialLawParams( std::vector<MaterialLawParams > materialLawParams)
+    {
+        materialLawManager_->materialLawParams_ = materialLawParams;
+    }
     /*!
      * \brief Return the parameters for the energy storage law of the rock
      */
@@ -1578,6 +1637,10 @@ RestrictProlongOperator restrictProlongOperator()
                 MaterialLaw::relativePermeabilities(mob_array, materialParams, fluidState);
             }
         }
+    }
+
+   size_t globalToEclIndex(  size_t elem) {    
+    return container_[elem].preAdaptIndex;
     }
 
     /*!
@@ -1776,7 +1839,7 @@ RestrictProlongOperator restrictProlongOperator()
     bool recycleFirstIterationStorage() const
     {
         int episodeIdx = this->episodeIndex();
-        return !this->drsdtActive_(episodeIdx) &&
+        return false && !this->drsdtActive_(episodeIdx) &&
                !this->drvdtActive_(episodeIdx) &&
                this->rockCompPoroMultWc_.empty() &&
                this->rockCompPoroMult_.empty();
@@ -2345,6 +2408,63 @@ private:
         materialLawManager_->initParamsForElements(eclState, this->model().numGridDof());
         ////////////////////////////////
     }
+//REQUIRED FOR ADAPTIVITY
+    void updateMaterialParameters_()
+    {
+        OPM_TIMEBLOCK(readMaterialParameters);
+        const auto& simulator = this->simulator();
+        const auto& vanguard = simulator.vanguard();
+        const auto& eclState = vanguard.eclState();
+
+        // the PVT and saturation region numbers
+        this->updatePvtnum_();
+        this->updateSatnum_();
+
+        // the MISC region numbers (solvent model)
+        this->updateMiscnum_();
+        // the PLMIX region numbers (polymer model)
+        this->updatePlmixnum_();
+
+        // directional relative permeabilities
+        this->updateKrnum_();
+        ////////////////////////////////
+        // porosity
+        updateReferencePorosity_();
+        this->referencePorosity_[1] = this->referencePorosity_[0];
+        ////////////////////////////////
+
+        ////////////////////////////////
+        // fluid-matrix interactions (saturation functions; relperm/capillary pressure)
+        materialLawManager_ = std::make_shared<EclMaterialLawManager>();
+        materialLawManager_->initFromState(eclState);
+        auto gridView = this->simulator().vanguard().gridView();
+        std::vector<int> postAdaptIndex ;
+        postAdaptIndex.reserve(gridView.indexSet().size(0));
+
+        std::vector<MaterialLawParams>  materialLawParams;
+        materialLawParams.reserve(gridView.indexSet().size(0));
+        std::vector<bool> is_cell_Perf{};
+
+        auto it = gridView.template begin<0>();
+        const auto& endIt = gridView.template end<0>();
+        const auto& elementMapper = this->model().elementMapper();
+        auto& sol = this->model().solution(/*timeIdx=*/0);
+        for (; it != endIt; ++it) {
+            postAdaptIndex.push_back(container_[*it].preAdaptIndex) ;
+            unsigned globalElemIdx = elementMapper.index(*it);
+            auto& priVars = sol[globalElemIdx];
+            priVars.setPrimaryVarsMeaningWater(container_[*it].wm);
+            priVars.setPrimaryVarsMeaningPressure(container_[*it].pm);
+            priVars.setPrimaryVarsMeaningGas(container_[*it].gm);
+            MaterialLawParams  mlp = container_[*it].matLawParams;
+            materialLawParams.emplace_back(mlp);
+            is_cell_Perf.emplace_back(container_[*it].isCellPerforation);
+
+        }
+        setMaterialLawParams(materialLawParams);
+        wellModel_.is_cell_perforated_=is_cell_Perf;
+    }
+
 
     void readThermalParameters_()
     {
