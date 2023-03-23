@@ -693,6 +693,7 @@ class EclProblemDynamic : public GetPropType<TypeTag, Properties::BaseProblem>
                int preAdaptIndex;
                MaterialLawParams matLawParams;
                bool isCellPerforation;
+               int pvtRegionIdx;
               };
     using Grid = GetPropType<TypeTag, Properties::Grid>;
     using GlobalContainer = Dune::PersistentContainer< Grid, ProblemContainer>;
@@ -991,7 +992,6 @@ void fillContainerForGridAdaptation()
             container_[elem].gm = sol[elemIdx].primaryVarsMeaningGas();
             container_[elem].matLawParams = materialLawParams(elemIdx);
             container_[elem].preAdaptIndex = elemIdx;
-            //container_[elem].isCellPerforated = wellModel().isCellPerforated(elemIdx);
             preAdaptGridIndex_[elemIdx]=elemIdx;
         }
     
@@ -1257,6 +1257,7 @@ RestrictProlongOperator restrictProlongOperator()
             elemCtx.updatePrimaryStencil(elem);
             int elemIdx = elemCtx.globalSpaceIndex(/*dofIdx=*/0, /*timeIdx=*/0);
             container_[elem].isCellPerforation = wellModel().isCellPerforated(elemIdx);
+            container_[elem].pvtRegionIdx = simulator.problem().pvtRegionIndex(elemIdx);
         }
     
         if (enableAquifers_)
@@ -2444,6 +2445,7 @@ private:
         std::vector<MaterialLawParams>  materialLawParams;
         materialLawParams.reserve(gridView.indexSet().size(0));
         std::vector<bool> is_cell_Perf{};
+        std::vector<int> pvt_region_idx{};
 
         auto it = gridView.template begin<0>();
         const auto& endIt = gridView.template end<0>();
@@ -2459,7 +2461,7 @@ private:
             MaterialLawParams  mlp = container_[*it].matLawParams;
             materialLawParams.emplace_back(mlp);
             is_cell_Perf.emplace_back(container_[*it].isCellPerforation);
-
+            pvt_region_idx.emplace_back(container_[*it].pvtRegionIdx);
         }
         setMaterialLawParams(materialLawParams);
         wellModel_.is_cell_perforated_=is_cell_Perf;
