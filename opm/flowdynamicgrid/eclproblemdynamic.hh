@@ -679,10 +679,12 @@ class EclProblemDynamic : public GetPropType<TypeTag, Properties::BaseProblem>
     using WaterMeaning = typename PrimaryVariables::WaterMeaning;
     using PressureMeaning = typename PrimaryVariables::PressureMeaning;
     using GasMeaning = typename PrimaryVariables::GasMeaning;
+    using BrineMeaning = typename PrimaryVariables::BrineMeaning;
     enum class PrimaryVarsMeaning {
         WaterMeaning,  //Sw, Rvw, Rsw, disabled; (Water Meaning)
         PressureMeaning, // Po, Pg, Pw, disable; (Pressure Meaning)
         GasMeaning, // Rg, Rs, Rvm disabled; (Gas Meaning)
+        BrineMeaning, // Rg, Rs, Rvm disabled; (Brine Meaning)
         Undef, // The primary variable is not used
      };
 
@@ -690,6 +692,7 @@ class EclProblemDynamic : public GetPropType<TypeTag, Properties::BaseProblem>
                WaterMeaning wm;
                PressureMeaning pm;
                GasMeaning gm;
+               BrineMeaning bm;
                int preAdaptIndex;
                MaterialLawParams matLawParams;
                bool isCellPerforation;
@@ -971,7 +974,7 @@ public:
         this->readRockParameters_(this->simulator().vanguard().cellCenterDepths());
         updateMaterialParameters_();
         //readMaterialParameters_();
-        //readThermalParameters_();
+        readThermalParameters_();
         wellModel_.gridChanged();
     }
 
@@ -990,6 +993,7 @@ void fillContainerForGridAdaptation()
             container_[elem].wm = sol[elemIdx].primaryVarsMeaningWater();
             container_[elem].pm = sol[elemIdx].primaryVarsMeaningPressure();
             container_[elem].gm = sol[elemIdx].primaryVarsMeaningGas();
+            container_[elem].bm = sol[elemIdx].primaryVarsMeaningBrine();            
             container_[elem].matLawParams = materialLawParams(elemIdx);
             container_[elem].preAdaptIndex = elemIdx;
             preAdaptGridIndex_[elemIdx]=elemIdx;
@@ -1003,10 +1007,19 @@ void fillContainerForGridAdaptation()
         ElementContext elemCtx( this->simulator() );
         auto gridView = this->simulator().vanguard().gridView();
         auto& grid = this->simulator().vanguard().grid();
+        auto& sol = this->model().solution(/*timeIdx=*/0);
         for(const auto& elem: elements(gridView, Dune::Partitions::interior))
         {
             elemCtx.updateAll(elem);
             int elemIdx = elemCtx.globalSpaceIndex(/*dofIdx=*/0, /*timeIdx=*/0);
+            const auto& priVars = elemCtx.primaryVars(/*spaceIdx=*/0, /*timeIdx=*/0);
+            container_[elem].wm = sol[elemIdx].primaryVarsMeaningWater();
+            container_[elem].pm = sol[elemIdx].primaryVarsMeaningPressure();
+            container_[elem].gm = sol[elemIdx].primaryVarsMeaningGas();
+            container_[elem].bm = sol[elemIdx].primaryVarsMeaningBrine();
+            container_[elem].matLawParams = materialLawParams(elemIdx);
+            container_[elem].preAdaptIndex = elemIdx;
+            preAdaptGridIndex_[elemIdx]=elemIdx;
             if (wellModel().isCellPerforated(elemIdx))
                 continue;
 
@@ -1027,8 +1040,8 @@ void fillContainerForGridAdaptation()
                 }
 
                 const Scalar indicator =
-                    (maxSat - minSat)/(std::max<Scalar>(0.01, maxSat+minSat)/2);
-                if( indicator > 0.2 && elem.level() < 2 ) {
+                    (maxSat - minSat);///(std::max<Scalar>(0.01, maxSat+minSat)/2);
+                if( indicator > 0.5 && elem.level() < 2 ) {
                     grid.mark( 1, elem );
                     ++ numMarked;
 
@@ -2458,12 +2471,21 @@ private:
             priVars.setPrimaryVarsMeaningWater(container_[*it].wm);
             priVars.setPrimaryVarsMeaningPressure(container_[*it].pm);
             priVars.setPrimaryVarsMeaningGas(container_[*it].gm);
+            priVars.setPrimaryVarsMeaningBrine(container_[*it].bm);
             MaterialLawParams  mlp = container_[*it].matLawParams;
+            mlp.finalize();
             materialLawParams.emplace_back(mlp);
             is_cell_Perf.emplace_back(container_[*it].isCellPerforation);
             pvt_region_idx.emplace_back(container_[*it].pvtRegionIdx);
         }
-        setMaterialLawParams(materialLawParams);
+        
+        materialLawManager_->setMaterialLawParams(materialLawParams);
+         
+        size_t numDof = this->model().numGridDof();
+        for (size_t dofIdx = 0; dofIdx < numDof; ++ dofIdx) {
+            materialLawManager_->materialLawParams_[dofIdx].finalize();
+        }
+        //setMaterialLawParams(materialLawParams);
         wellModel_.is_cell_perforated_=is_cell_Perf;
     }
 
