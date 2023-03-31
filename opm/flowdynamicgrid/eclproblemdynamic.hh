@@ -973,9 +973,8 @@ public:
         this->simulator().vanguard().updateCellThickness_();
         this->readRockParameters_(this->simulator().vanguard().cellCenterDepths());
         updateMaterialParameters_();
-        //readMaterialParameters_();
         readThermalParameters_();
-        wellModel_.gridChanged();
+        //wellModel_.gridChanged();
     }
 
 void fillContainerForGridAdaptation()
@@ -1008,6 +1007,9 @@ void fillContainerForGridAdaptation()
         auto gridView = this->simulator().vanguard().gridView();
         auto& grid = this->simulator().vanguard().grid();
         auto& sol = this->model().solution(/*timeIdx=*/0);
+        int episodeIdx = this->simulator().episodeIndex();
+        size_t numDof = this->model().numGridDof();
+        if (episodeIdx>0) {
         for(const auto& elem: elements(gridView, Dune::Partitions::interior))
         {
             elemCtx.updateAll(elem);
@@ -1020,6 +1022,7 @@ void fillContainerForGridAdaptation()
             container_[elem].matLawParams = materialLawParams(elemIdx);
             container_[elem].preAdaptIndex = elemIdx;
             preAdaptGridIndex_[elemIdx]=elemIdx;
+
             if (wellModel().isCellPerforated(elemIdx))
                 continue;
 
@@ -1041,7 +1044,7 @@ void fillContainerForGridAdaptation()
 
                 const Scalar indicator =
                     (maxSat - minSat);///(std::max<Scalar>(0.01, maxSat+minSat)/2);
-                if( indicator > 0.5 && elem.level() < 2 ) {
+                if( indicator > 0.5 && elem.level() < 2) {
                     grid.mark( 1, elem );
                     ++ numMarked;
 
@@ -1053,10 +1056,24 @@ void fillContainerForGridAdaptation()
                 }
             }
         }
-
         // get global sum so that every proc is on the same page
         numMarked = this->simulator().vanguard().grid().comm().sum( numMarked );
-
+        }
+        else {
+        for(const auto& elem: elements(gridView, Dune::Partitions::interior))
+        {
+            elemCtx.updateAll(elem);
+            int elemIdx = elemCtx.globalSpaceIndex(/*dofIdx=*/0, /*timeIdx=*/0);
+            const auto& priVars = elemCtx.primaryVars(/*spaceIdx=*/0, /*timeIdx=*/0);
+            container_[elem].wm = sol[elemIdx].primaryVarsMeaningWater();
+            container_[elem].pm = sol[elemIdx].primaryVarsMeaningPressure();
+            container_[elem].gm = sol[elemIdx].primaryVarsMeaningGas();
+            container_[elem].bm = sol[elemIdx].primaryVarsMeaningBrine();
+            container_[elem].matLawParams = materialLawParams(elemIdx);
+            container_[elem].preAdaptIndex = elemIdx;
+            preAdaptGridIndex_[elemIdx]=elemIdx;
+        }
+        }
         return numMarked;
     }
 RestrictProlongOperator restrictProlongOperator()
@@ -1572,12 +1589,14 @@ RestrictProlongOperator restrictProlongOperator()
     const MaterialLawParams& materialLawParams(const Context& context,
                                                unsigned spaceIdx, unsigned timeIdx) const
     {
+        const auto&entity = context.stencil(timeIdx).entity(spaceIdx);
         unsigned globalSpaceIdx = context.globalSpaceIndex(spaceIdx, timeIdx);
-        return this->materialLawParams(globalSpaceIdx);
+        return this->materialLawParams(container_[entity].preAdaptIndex);
     }
 
     const MaterialLawParams& materialLawParams(unsigned globalDofIdx) const
-    {
+    {   
+       // materialLawManager_->materialLawParams(globalDofIdx).definalize();
         return materialLawManager_->materialLawParams(globalDofIdx);
     }
 
@@ -2473,15 +2492,19 @@ private:
             priVars.setPrimaryVarsMeaningGas(container_[*it].gm);
             priVars.setPrimaryVarsMeaningBrine(container_[*it].bm);
             MaterialLawParams  mlp = container_[*it].matLawParams;
+            Opm::EnsureFinalized();
             mlp.finalize();
             materialLawParams.emplace_back(mlp);
             is_cell_Perf.emplace_back(container_[*it].isCellPerforation);
             pvt_region_idx.emplace_back(container_[*it].pvtRegionIdx);
         }
         
-        materialLawManager_->setMaterialLawParams(materialLawParams);
-         
         size_t numDof = this->model().numGridDof();
+        for (size_t dofIdx = 0; dofIdx < numDof; ++ dofIdx) {
+            materialLawParams[dofIdx].finalize();
+        }
+        materialLawManager_->setMaterialLawParams(materialLawParams);
+        Opm::EnsureFinalized();
         for (size_t dofIdx = 0; dofIdx < numDof; ++ dofIdx) {
             materialLawManager_->materialLawParams_[dofIdx].finalize();
         }
