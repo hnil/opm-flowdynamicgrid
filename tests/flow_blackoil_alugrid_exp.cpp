@@ -68,7 +68,7 @@ public:
         };
 };
        template<typename TypeTag>
-    class BlackOilModelDynamic: public BlackOilModel<TypeTag>{
+    class BlackOilModelDynamic: public FIBlackOilModel<TypeTag>{
         using Parent = BlackOilModel<TypeTag>;
         using GridView = GetPropType<TypeTag, Properties::GridView>;
         using Element = typename GridView::template Codim<0>::Entity;
@@ -81,7 +81,7 @@ public:
         historySize = getPropValue<TypeTag, Properties::TimeDiscHistorySize>(),
         };
     public:
-        BlackOilModelDynamic(Simulator& simulator): BlackOilModel<TypeTag>(simulator){
+        BlackOilModelDynamic(Simulator& simulator): FIBlackOilModel<TypeTag>(simulator){
         }
  //   void invalidateAndUpdateIntensiveQuantities(unsigned timeIdx) const
 //    {
@@ -102,25 +102,29 @@ public:
 
         auxMod->applyInitial();
     }
- void invalidateAndUpdateIntensiveQuantities(unsigned timeIdx) const
-    {
+           void invalidateAndUpdateIntensiveQuantities(unsigned timeIdx) const
+           {
        OPM_TIMEBLOCK_LOCAL(invalidateAndUpdateIntensiveQuantities);
        Parent::invalidateAndUpdateIntensiveQuantities(timeIdx);
-       // loop over all elements...
-    //   ThreadedEntityIterator<GridView, /*codim=*/0> threadedElemIt(this->gridView_);
-//#ifdef _OPENMP
-//#pragma omp parallel
-//#endif
- //    const auto& gridView = this->gridView_;
- //       ElementContext elemCtx(this->simulator_);
- //       for (const auto& elem : elements(this->simulator_.vanguard().gridView(), Dune::Partitions::all)) {
- //       unsigned eee = this->simulator_.problem().globalToEclIndex(elem);
- //           elemCtx.updatePrimaryStencil(eee);
- //           int elemIdx = elemCtx.globalSpaceIndex(/*spaceIdx=*/0, /*timeIdx=*/0);
- //              elemCtx.updatePrimaryIntensiveQuantities(/*timeIdx=*/0);
- //       }
     }
-    };
+        //     IntensiveQuantities intensiveQuantities(unsigned globalIdx, unsigned timeIdx) const{
+        //     OPM_TIMEBLOCK_LOCAL(intensiveQuantitiesNoCache);
+        //     const auto& primaryVar = this->solution(timeIdx)[globalIdx];
+        //     const auto& problem = this->simulator_.problem();
+        //     //IntensiveQuantities* intQuants = &(this->intensiveQuantityCache_[timeIdx][globalIdx]);
+        //     if (!(this->enableIntensiveQuantityCache_) ||
+        //         !(this->intensiveQuantityCacheUpToDate_[timeIdx][globalIdx])){
+        //         IntensiveQuantities intQuants;
+        //         intQuants.update(problem,primaryVar, globalIdx, timeIdx);
+        //         return intQuants;// reqiored for updating extrution factor
+        //     }else{
+        //         IntensiveQuantities intQuants = (this->intensiveQuantityCache_[timeIdx][globalIdx]);
+        //         return intQuants;
+        //     }
+
+        // }
+       
+       };
 }
 namespace Opm {
 namespace Properties {
@@ -144,7 +148,7 @@ struct EclFlowProblemAlugrid {
  };
     template<class TypeTag>
     struct Model<TypeTag, TTag::EclFlowProblemAlugrid> {
-        using type = BlackOilModelDynamic<TypeTag>;
+         using type = BlackOilModelDynamic<TypeTag>;
     };
     template<class TypeTag>
     struct SpatialDiscretizationSplice<TypeTag, TTag::EclFlowProblemAlugrid> {
@@ -164,6 +168,14 @@ template<class TypeTag>
 struct EclEnableAquifers<TypeTag, TTag::EclFlowProblemAlugrid> {
     static constexpr bool value = false;
 };
+
+
+    //template<class TypeTag>
+ //   struct LocalResidual<TypeTag, TTag::EclFlowProblemTest> { using type = BlackOilLocalResidualTPFA<TypeTag>; };
+    //template<class TypeTag>
+    //struct IntensiveQuantities<TypeTag, TTag::EclFlowProblemTest> {
+    //using type = BlackOilIntensiveQuantitiesSimple<TypeTag>;
+    //};      
 // use automatic differentiation for this simulator
 template<class TypeTag>
 struct LocalLinearizerSplice<TypeTag, TTag::EclFlowProblemAlugrid> { using type = TTag::AutoDiffLocalLinearizer; };

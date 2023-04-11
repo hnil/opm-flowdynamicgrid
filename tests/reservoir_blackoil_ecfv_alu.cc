@@ -34,6 +34,7 @@
 #include <opm/simulators/linalg/parallelbicgstabbackend.hh>
 #include <dune/alugrid/grid.hh>
 #include "tests/problems/reservoirproblem.hh"
+#include "opm/flowdynamicgrid/reservoirproblemdynamic.hh"
 
 namespace Opm::Properties {
 
@@ -55,7 +56,10 @@ struct LocalLinearizerSplice<TypeTag, TTag::ReservoirBlackOilEcfvProblem> { usin
         static const int dim = 2;
         using type = Dune::ALUGrid<dim, dim, Dune::cube, Dune::nonconforming >;
 };  
-    
+template<class TypeTag>
+struct Problem<TypeTag, TTag::ReservoirBlackOilEcfvProblem>{
+    using type = Opm::ReservoirProblemDynamic<TypeTag>;
+};
 }
     
  // namespace Opm::Properties

@@ -694,7 +694,7 @@ class EclProblemDynamic : public GetPropType<TypeTag, Properties::BaseProblem>
                GasMeaning gm;
                BrineMeaning bm;
                int preAdaptIndex;
-               MaterialLawParams matLawParams;
+         //MaterialLawParams matLawParams;
                bool isCellPerforation;
                int pvtRegionIdx;
               };
@@ -793,13 +793,13 @@ public:
         , aquiferModel_(simulator)
         , pffDofData_(simulator.gridView(), this->elementMapper())
         , tracerModel_(simulator)
-        , container_(simulator.vanguard().grid(), 0 )
         , actionHandler_(simulator.vanguard().eclState(),
                          simulator.vanguard().schedule(),
                          simulator.vanguard().actionState(),
                          simulator.vanguard().summaryState(),
                          wellModel_,
                          simulator.vanguard().grid().comm())
+        , container_(simulator.vanguard().grid(), 0 )
     {
         this->model().addOutputModule(new VtkEclTracerModule<TypeTag>(simulator));
         // Tell the black-oil extensions to initialize their internal data structures
@@ -993,7 +993,7 @@ void fillContainerForGridAdaptation()
             container_[elem].pm = sol[elemIdx].primaryVarsMeaningPressure();
             container_[elem].gm = sol[elemIdx].primaryVarsMeaningGas();
             container_[elem].bm = sol[elemIdx].primaryVarsMeaningBrine();            
-            container_[elem].matLawParams = materialLawParams(elemIdx);
+            //container_[elem].matLawParams = materialLawParams(elemIdx);
             container_[elem].preAdaptIndex = elemIdx;
             preAdaptGridIndex_[elemIdx]=elemIdx;
         }
@@ -1019,7 +1019,7 @@ void fillContainerForGridAdaptation()
             container_[elem].pm = sol[elemIdx].primaryVarsMeaningPressure();
             container_[elem].gm = sol[elemIdx].primaryVarsMeaningGas();
             container_[elem].bm = sol[elemIdx].primaryVarsMeaningBrine();
-            container_[elem].matLawParams = materialLawParams(elemIdx);
+            //container_[elem].matLawParams = materialLawParams(elemIdx);
             container_[elem].preAdaptIndex = elemIdx;
             preAdaptGridIndex_[elemIdx]=elemIdx;
 
@@ -1069,7 +1069,7 @@ void fillContainerForGridAdaptation()
             container_[elem].pm = sol[elemIdx].primaryVarsMeaningPressure();
             container_[elem].gm = sol[elemIdx].primaryVarsMeaningGas();
             container_[elem].bm = sol[elemIdx].primaryVarsMeaningBrine();
-            container_[elem].matLawParams = materialLawParams(elemIdx);
+            //container_[elem].matLawParams = materialLawParams(elemIdx);
             container_[elem].preAdaptIndex = elemIdx;
             preAdaptGridIndex_[elemIdx]=elemIdx;
         }
@@ -1647,29 +1647,29 @@ RestrictProlongOperator restrictProlongOperator()
         std::array<Evaluation,numPhases> &mobility,
         DirectionalMobilityPtr &dirMob,
         FluidState &fluidState,
-        unsigned globalSpaceIdx) const
+        const MaterialLawParams& materialParams) const
     {
         OPM_TIMEBLOCK_LOCAL(updateRelperms);
         {
             // calculate relative permeabilities. note that we store the result into the
             // mobility_ class attribute. the division by the phase viscosity happens later.
-            const auto& materialParams = materialLawParams(globalSpaceIdx);
+            //const auto& materialParams = materialLawParams(globalSpaceIdx);
             MaterialLaw::relativePermeabilities(mobility, materialParams, fluidState);
             Valgrind::CheckDefined(mobility);
         }
-        if (materialLawManager_->hasDirectionalRelperms()
-               || materialLawManager_->hasDirectionalImbnum())
-        {
-            using Dir = FaceDir::DirEnum;
-            constexpr int ndim = 3;
-            dirMob = std::make_unique<DirectionalMobility<TypeTag, Evaluation>>();
-            Dir facedirs[ndim] = {Dir::XPlus, Dir::YPlus, Dir::ZPlus};
-            for (int i = 0; i<ndim; i++) {
-                const auto& materialParams = materialLawParams(globalSpaceIdx, facedirs[i]);
-                auto& mob_array = dirMob->getArray(i);
-                MaterialLaw::relativePermeabilities(mob_array, materialParams, fluidState);
-            }
-        }
+        // if (materialLawManager_->hasDirectionalRelperms()
+        //        || materialLawManager_->hasDirectionalImbnum())
+        // {
+        //     using Dir = FaceDir::DirEnum;
+        //     constexpr int ndim = 3;
+        //     dirMob = std::make_unique<DirectionalMobility<TypeTag, Evaluation>>();
+        //     Dir facedirs[ndim] = {Dir::XPlus, Dir::YPlus, Dir::ZPlus};
+        //     for (int i = 0; i<ndim; i++) {
+        //         const auto& materialParams = materialLawParams(globalSpaceIdx, facedirs[i]);
+        //         auto& mob_array = dirMob->getArray(i);
+        //         MaterialLaw::relativePermeabilities(mob_array, materialParams, fluidState);
+        //     }
+        // }
     }
 
    size_t globalToEclIndex(  size_t elem) {    
@@ -2444,7 +2444,7 @@ private:
 //REQUIRED FOR ADAPTIVITY
     void updateMaterialParameters_()
     {
-        OPM_TIMEBLOCK(readMaterialParameters);
+        OPM_TIMEBLOCK(updateMaterialParameters);
         const auto& simulator = this->simulator();
         const auto& vanguard = simulator.vanguard();
         const auto& eclState = vanguard.eclState();
@@ -2468,8 +2468,8 @@ private:
 
         ////////////////////////////////
         // fluid-matrix interactions (saturation functions; relperm/capillary pressure)
-        materialLawManager_ = std::make_shared<EclMaterialLawManager>();
-        materialLawManager_->initFromState(eclState);
+        //materialLawManager_ = std::make_shared<EclMaterialLawManager>();
+        //materialLawManager_->initFromState(eclState);
         auto gridView = this->simulator().vanguard().gridView();
         std::vector<int> postAdaptIndex ;
         postAdaptIndex.reserve(gridView.indexSet().size(0));
@@ -2491,10 +2491,10 @@ private:
             priVars.setPrimaryVarsMeaningPressure(container_[*it].pm);
             priVars.setPrimaryVarsMeaningGas(container_[*it].gm);
             priVars.setPrimaryVarsMeaningBrine(container_[*it].bm);
-            MaterialLawParams  mlp = container_[*it].matLawParams;
-            Opm::EnsureFinalized();
-            mlp.finalize();
-            materialLawParams.emplace_back(mlp);
+            // MaterialLawParams  mlp = container_[*it].matLawParams;
+            // Opm::EnsureFinalized();
+            // mlp.finalize();
+            // materialLawParams.emplace_back(mlp);
             is_cell_Perf.emplace_back(container_[*it].isCellPerforation);
             pvt_region_idx.emplace_back(container_[*it].pvtRegionIdx);
         }
@@ -2503,11 +2503,11 @@ private:
         for (size_t dofIdx = 0; dofIdx < numDof; ++ dofIdx) {
             materialLawParams[dofIdx].finalize();
         }
-        materialLawManager_->setMaterialLawParams(materialLawParams);
-        Opm::EnsureFinalized();
-        for (size_t dofIdx = 0; dofIdx < numDof; ++ dofIdx) {
-            materialLawManager_->materialLawParams_[dofIdx].finalize();
-        }
+        //materialLawManager_->setMaterialLawParams(materialLawParams);
+        // Opm::EnsureFinalized();
+        // for (size_t dofIdx = 0; dofIdx < numDof; ++ dofIdx) {
+        //     materialLawManager_->materialLawParams_[dofIdx].finalize();
+        // }
         //setMaterialLawParams(materialLawParams);
         wellModel_.is_cell_perforated_=is_cell_Perf;
     }
