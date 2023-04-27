@@ -771,6 +771,7 @@ public:
 
     //! \}
 
+GlobalContainer container_;
 private:
     void initFluidState_()
     {
@@ -932,7 +933,6 @@ private:
     Scalar temperature_;
     Scalar maxDepth_;
     Scalar wellWidth_;
-    GlobalContainer container_;
     //std::vector<int> preAdaptGridIndex_;
 };
 } // namespace Opm

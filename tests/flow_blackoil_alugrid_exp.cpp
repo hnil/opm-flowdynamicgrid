@@ -50,21 +50,15 @@ namespace Opm{
 public:
         EclProblemNew(Simulator& simulator): EclProblem<TypeTag>(simulator){
         }
-        template <class FluidState>
-        void updateRelperms(
+        template <class Context, class FluidState>
+       void updateRelperms( const Context& context,
             std::array<Evaluation,numPhases> &mobility,
-            DirectionalMobilityPtr &/*dirMob*/,
+            DirectionalMobilityPtr &dirMob,
             FluidState &fluidState,
-            unsigned globalSpaceIdx) const
+            unsigned dofIdx, unsigned timeIdx) const
         {
             OPM_TIMEBLOCK_LOCAL(updateRelperms);
-            {
-                // calculate relative permeabilities. note that we store the result into the
-                // mobility_ class attribute. the division by the phase viscosity happens later.
-                const auto& materialParams = this->materialLawParams(globalSpaceIdx);
-                MaterialLaw::relativePermeabilities(mobility, materialParams, fluidState);
-                Valgrind::CheckDefined(mobility);
-            }
+            Parent::updateRelperms(context, mobility, dirMob, fluidState, dofIdx, timeIdx);
         };
 };
        template<typename TypeTag>

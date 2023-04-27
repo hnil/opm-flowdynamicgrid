@@ -956,8 +956,8 @@ public:
 
     void gridChanged()
     {
-        this->model().finishInit();
         ParentType::gridChanged();
+        this->model().finishInit();
         const auto& vanguard = this->simulator().vanguard();
         unsigned ntpvt = vanguard.eclState().runspec().tabdims().getNumPVTTables();
         size_t numDof = this->model().numGridDof();
@@ -974,7 +974,8 @@ public:
         this->readRockParameters_(this->simulator().vanguard().cellCenterDepths());
         updateMaterialParameters_();
         readThermalParameters_();
-        //wellModel_.gridChanged();
+        wellModel_.gridChanged();
+
     }
 
 void fillContainerForGridAdaptation()
@@ -999,8 +1000,8 @@ void fillContainerForGridAdaptation()
         }
     
     }
-
- unsigned markForGridAdaptation()
+    
+    unsigned markForGridAdaptation()
     {
         unsigned numMarked = 0;
         ElementContext elemCtx( this->simulator() );
@@ -1008,8 +1009,6 @@ void fillContainerForGridAdaptation()
         auto& grid = this->simulator().vanguard().grid();
         auto& sol = this->model().solution(/*timeIdx=*/0);
         int episodeIdx = this->simulator().episodeIndex();
-        size_t numDof = this->model().numGridDof();
-        if (episodeIdx>0) {
         for(const auto& elem: elements(gridView, Dune::Partitions::interior))
         {
             elemCtx.updateAll(elem);
@@ -1019,13 +1018,11 @@ void fillContainerForGridAdaptation()
             container_[elem].pm = sol[elemIdx].primaryVarsMeaningPressure();
             container_[elem].gm = sol[elemIdx].primaryVarsMeaningGas();
             container_[elem].bm = sol[elemIdx].primaryVarsMeaningBrine();
-            //container_[elem].matLawParams = materialLawParams(elemIdx);
+            //       container_[elem].matLawParams = materialLawParams(elemIdx);
             container_[elem].preAdaptIndex = elemIdx;
             preAdaptGridIndex_[elemIdx]=elemIdx;
-
-            if (wellModel().isCellPerforated(elemIdx))
+            if (wellModel().isCellPerforated(elemIdx)||(episodeIdx==0))
                 continue;
-
             // HACK: this should better be part of an AdaptionCriterion class
             for (unsigned phaseIdx = 0; phaseIdx < numPhases; ++phaseIdx) {
                 if (!FluidSystem::phaseIsActive(phaseIdx))
@@ -1041,10 +1038,10 @@ void fillContainerForGridAdaptation()
                     maxSat = std::max(maxSat,
                                       Toolbox::value(intQuant.fluidState().saturation(phaseIdx)));
                 }
-
+                
                 const Scalar indicator =
                     (maxSat - minSat);///(std::max<Scalar>(0.01, maxSat+minSat)/2);
-                if( indicator > 0.5 && elem.level() < 2) {
+                if( indicator > 0.5 && elem.level() < 2 ) {
                     grid.mark( 1, elem );
                     ++ numMarked;
 
@@ -1056,24 +1053,10 @@ void fillContainerForGridAdaptation()
                 }
             }
         }
+
         // get global sum so that every proc is on the same page
         numMarked = this->simulator().vanguard().grid().comm().sum( numMarked );
-        }
-        else {
-        for(const auto& elem: elements(gridView, Dune::Partitions::interior))
-        {
-            elemCtx.updateAll(elem);
-            int elemIdx = elemCtx.globalSpaceIndex(/*dofIdx=*/0, /*timeIdx=*/0);
-            const auto& priVars = elemCtx.primaryVars(/*spaceIdx=*/0, /*timeIdx=*/0);
-            container_[elem].wm = sol[elemIdx].primaryVarsMeaningWater();
-            container_[elem].pm = sol[elemIdx].primaryVarsMeaningPressure();
-            container_[elem].gm = sol[elemIdx].primaryVarsMeaningGas();
-            container_[elem].bm = sol[elemIdx].primaryVarsMeaningBrine();
-            //container_[elem].matLawParams = materialLawParams(elemIdx);
-            container_[elem].preAdaptIndex = elemIdx;
-            preAdaptGridIndex_[elemIdx]=elemIdx;
-        }
-        }
+
         return numMarked;
     }
 RestrictProlongOperator restrictProlongOperator()
@@ -1308,7 +1291,7 @@ RestrictProlongOperator restrictProlongOperator()
         }
 
         bool isSubStep = !EWOMS_GET_PARAM(TypeTag, bool, EnableWriteAllSolutions) && !this->simulator().episodeWillBeOver();
-        eclWriter_->evalSummaryState(isSubStep);
+       // eclWriter_->evalSummaryState(isSubStep);
 
         int episodeIdx = this->episodeIndex();
 
@@ -1397,8 +1380,10 @@ RestrictProlongOperator restrictProlongOperator()
                                            unsigned spaceIdx,
                                            unsigned timeIdx) const
     {
+        
+        const auto&entity = context.stencil(timeIdx).entity(spaceIdx);
         unsigned globalSpaceIdx = context.globalSpaceIndex(spaceIdx, timeIdx);
-        return transmissibilities_.permeability(globalSpaceIdx);
+        return transmissibilities_.permeability(container_[entity].preAdaptIndex);
     }
 
     /*!
@@ -1449,8 +1434,9 @@ RestrictProlongOperator restrictProlongOperator()
     Scalar transmissibilityBoundary(const Context& elemCtx,
                                     unsigned boundaryFaceIdx) const
     {
+        const auto&entity = elemCtx.stencil(/*timeIdx=*/0).entity(/*dofIdx=*/0);
         unsigned elemIdx = elemCtx.globalSpaceIndex(/*dofIdx=*/0, /*timeIdx=*/0);
-        return transmissibilities_.transmissibilityBoundary(elemIdx, boundaryFaceIdx);
+        return transmissibilities_.transmissibilityBoundary(container_[entity].preAdaptIndex, boundaryFaceIdx);
     }
 
     /*!
@@ -1534,8 +1520,9 @@ RestrictProlongOperator restrictProlongOperator()
     template <class Context>
     Scalar porosity(const Context& context, unsigned spaceIdx, unsigned timeIdx) const
     {
+        const auto&entity = context.stencil(timeIdx).entity(spaceIdx);
         unsigned globalSpaceIdx = context.globalSpaceIndex(spaceIdx, timeIdx);
-        return this->porosity(globalSpaceIdx, timeIdx);
+        return this->porosity(container_[entity].preAdaptIndex, timeIdx);
     }
 
     /*!
@@ -1547,8 +1534,9 @@ RestrictProlongOperator restrictProlongOperator()
     template <class Context>
     Scalar dofCenterDepth(const Context& context, unsigned spaceIdx, unsigned timeIdx) const
     {
+        const auto&entity = context.stencil(timeIdx).entity(spaceIdx);
         unsigned globalSpaceIdx = context.globalSpaceIndex(spaceIdx, timeIdx);
-        return this->dofCenterDepth(globalSpaceIdx);
+        return this->dofCenterDepth(container_[entity].preAdaptIndex);
     }
 
     /*!
@@ -1569,7 +1557,8 @@ RestrictProlongOperator restrictProlongOperator()
     Scalar rockCompressibility(const Context& context, unsigned spaceIdx, unsigned timeIdx) const
     {
         unsigned globalSpaceIdx = context.globalSpaceIndex(spaceIdx, timeIdx);
-        return this->rockCompressibility(globalSpaceIdx);
+        const auto&entity = context.stencil(timeIdx).entity(spaceIdx);
+        return this->rockCompressibility(container_[entity].preAdaptIndex);
     }
 
     /*!
@@ -1579,7 +1568,8 @@ RestrictProlongOperator restrictProlongOperator()
     Scalar rockReferencePressure(const Context& context, unsigned spaceIdx, unsigned timeIdx) const
     {
         unsigned globalSpaceIdx = context.globalSpaceIndex(spaceIdx, timeIdx);
-        return this->rockReferencePressure(globalSpaceIdx);
+        const auto&entity = context.stencil(timeIdx).entity(spaceIdx);
+        return this->rockReferencePressure(container_[entity].preAdaptIndex);
     }
 
     /*!
@@ -1597,12 +1587,21 @@ RestrictProlongOperator restrictProlongOperator()
     const MaterialLawParams& materialLawParams(unsigned globalDofIdx) const
     {   
        // materialLawManager_->materialLawParams(globalDofIdx).definalize();
-        return materialLawManager_->materialLawParams(globalDofIdx);
+        return materialLawManager_->materialLawParams(0);
     }
 
     const MaterialLawParams& materialLawParams(unsigned globalDofIdx, FaceDir::DirEnum facedir) const
     {
         return materialLawManager_->materialLawParams(globalDofIdx, facedir);
+    }
+
+    template <class Context>
+    const MaterialLawParams& materialLawParams(const Context& context,
+                                               unsigned spaceIdx, unsigned timeIdx, FaceDir::DirEnum facedir) const
+    {
+        const auto&entity = context.stencil(timeIdx).entity(spaceIdx);
+        unsigned globalSpaceIdx = context.globalSpaceIndex(spaceIdx, timeIdx);
+        return materialLawManager_->materialLawParams(container_[entity].preAdaptIndex, facedir);
     }
 
     void setMaterialLawParams( std::vector<MaterialLawParams > materialLawParams)
@@ -1617,9 +1616,9 @@ RestrictProlongOperator restrictProlongOperator()
     solidEnergyLawParams(const Context& context,
                          unsigned spaceIdx,
                          unsigned timeIdx) const
-    {
+    {   const auto&entity = context.stencil(timeIdx).entity(spaceIdx);
         unsigned globalSpaceIdx = context.globalSpaceIndex(spaceIdx, timeIdx);
-        return thermalLawManager_->solidEnergyLawParams(globalSpaceIdx);
+        return thermalLawManager_->solidEnergyLawParams(container_[entity].preAdaptIndex);
     }
 
     /*!
@@ -1630,7 +1629,8 @@ RestrictProlongOperator restrictProlongOperator()
     thermalConductionLawParams(const Context& context, unsigned spaceIdx, unsigned timeIdx) const
     {
         unsigned globalSpaceIdx = context.globalSpaceIndex(spaceIdx, timeIdx);
-        return thermalLawManager_->thermalConductionLawParams(globalSpaceIdx);
+        const auto&entity = context.stencil(timeIdx).entity(spaceIdx);
+        return thermalLawManager_->thermalConductionLawParams(container_[entity].preAdaptIndex);
     }
 
     /*!
@@ -1642,34 +1642,34 @@ RestrictProlongOperator restrictProlongOperator()
     std::shared_ptr<const EclMaterialLawManager> materialLawManager() const
     { return materialLawManager_; }
 
-    template <class FluidState>
-    void updateRelperms(
+    template <class Context, class FluidState>
+    void updateRelperms( const Context& context,
         std::array<Evaluation,numPhases> &mobility,
         DirectionalMobilityPtr &dirMob,
         FluidState &fluidState,
-        const MaterialLawParams& materialParams) const
+        unsigned dofIdx, unsigned timeIdx) const
     {
         OPM_TIMEBLOCK_LOCAL(updateRelperms);
         {
             // calculate relative permeabilities. note that we store the result into the
             // mobility_ class attribute. the division by the phase viscosity happens later.
-            //const auto& materialParams = materialLawParams(globalSpaceIdx);
+            const auto& materialParams = materialLawParams(context, dofIdx, timeIdx);;
             MaterialLaw::relativePermeabilities(mobility, materialParams, fluidState);
             Valgrind::CheckDefined(mobility);
         }
-        // if (materialLawManager_->hasDirectionalRelperms()
-        //        || materialLawManager_->hasDirectionalImbnum())
-        // {
-        //     using Dir = FaceDir::DirEnum;
-        //     constexpr int ndim = 3;
-        //     dirMob = std::make_unique<DirectionalMobility<TypeTag, Evaluation>>();
-        //     Dir facedirs[ndim] = {Dir::XPlus, Dir::YPlus, Dir::ZPlus};
-        //     for (int i = 0; i<ndim; i++) {
-        //         const auto& materialParams = materialLawParams(globalSpaceIdx, facedirs[i]);
-        //         auto& mob_array = dirMob->getArray(i);
-        //         MaterialLaw::relativePermeabilities(mob_array, materialParams, fluidState);
-        //     }
-        // }
+        if (materialLawManager_->hasDirectionalRelperms()
+               || materialLawManager_->hasDirectionalImbnum())
+        {
+            using Dir = FaceDir::DirEnum;
+            constexpr int ndim = 3;
+            dirMob = std::make_unique<DirectionalMobility<TypeTag, Evaluation>>();
+            Dir facedirs[ndim] = {Dir::XPlus, Dir::YPlus, Dir::ZPlus};
+            for (int i = 0; i<ndim; i++) {
+                const auto& materialParams = materialLawParams(context, dofIdx, timeIdx, facedirs[i]);
+                auto& mob_array = dirMob->getArray(i);
+                MaterialLaw::relativePermeabilities(mob_array, materialParams, fluidState);
+            }
+        }
     }
 
    size_t globalToEclIndex(  size_t elem) {    
@@ -1688,7 +1688,9 @@ RestrictProlongOperator restrictProlongOperator()
      */
     template <class Context>
     unsigned pvtRegionIndex(const Context& context, unsigned spaceIdx, unsigned timeIdx) const
-    { return pvtRegionIndex(context.globalSpaceIndex(spaceIdx, timeIdx)); }
+    { const auto&entity = context.stencil(timeIdx).entity(spaceIdx);
+     return pvtRegionIndex(container_[entity].preAdaptIndex); 
+     }
 
     using EclGenericProblem<GridView,FluidSystem,Scalar>::satnumRegionIndex;
     /*!
@@ -1696,7 +1698,8 @@ RestrictProlongOperator restrictProlongOperator()
      */
     template <class Context>
     unsigned satnumRegionIndex(const Context& context, unsigned spaceIdx, unsigned timeIdx) const
-    { return this->satnumRegionIndex(context.globalSpaceIndex(spaceIdx, timeIdx)); }
+    { const auto&entity = context.stencil(timeIdx).entity(spaceIdx);
+    return this->satnumRegionIndex(container_[entity].preAdaptIndex); }
 
     using EclGenericProblem<GridView,FluidSystem,Scalar>::miscnumRegionIndex;
     /*!
@@ -1954,7 +1957,8 @@ RestrictProlongOperator restrictProlongOperator()
                 unsigned timeIdx) const
     {
         const unsigned globalDofIdx = context.globalSpaceIndex(spaceIdx, timeIdx);
-        source(rate, globalDofIdx, timeIdx);
+          const auto&entity = context.stencil(timeIdx).entity(spaceIdx);
+          source(rate, container_[entity].preAdaptIndex, timeIdx);
     }
 
     void source(RateVector& rate,
@@ -2541,12 +2545,12 @@ private:
         const std::vector<double> porvData = fp.porv(false);
         const std::vector<int> actnumData = fp.actnum();
         for (size_t dofIdx = 0; dofIdx < numDof; ++ dofIdx) {
-            Scalar poreVolume = porvData[dofIdx];
+            Scalar poreVolume = porvData[0];
 
             // we define the porosity as the accumulated pore volume divided by the
             // geometric volume of the element. Note that -- in pathetic cases -- it can
             // be larger than 1.0!
-            Scalar dofVolume = simulator.model().dofTotalVolume(dofIdx);
+            Scalar dofVolume = simulator.model().dofTotalVolume(0);
             assert(dofVolume > 0.0);
             this->referencePorosity_[/*timeIdx=*/0][dofIdx] = poreVolume/dofVolume;
         }
@@ -3245,7 +3249,7 @@ private:
     BCData<RateVector> massratebc_;
     BCData<std::tuple<BCComponent, std::optional<double>, std::optional<double>>> dirichlet_;
     bool nonTrivialBoundaryConditions_ = false;
-//REQUIRED FOR ADAPTIVITY
+public:
     GlobalContainer container_;
     std::vector<int> preAdaptGridIndex_;
 };
