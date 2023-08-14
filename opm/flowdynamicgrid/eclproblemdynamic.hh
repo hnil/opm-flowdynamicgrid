@@ -1019,8 +1019,8 @@ void fillContainerForGridAdaptation()
             container_[elem].gm = sol[elemIdx].primaryVarsMeaningGas();
             container_[elem].bm = sol[elemIdx].primaryVarsMeaningBrine();
             //       container_[elem].matLawParams = materialLawParams(elemIdx);
-            container_[elem].preAdaptIndex = elemIdx;
-            preAdaptGridIndex_[elemIdx]=elemIdx;
+            //container_[elem].preAdaptIndex = elemIdx;
+            //preAdaptGridIndex_[elemIdx]=elemIdx;
             if (wellModel().isCellPerforated(elemIdx)||(episodeIdx==0))
                 continue;
             // HACK: this should better be part of an AdaptionCriterion class
@@ -1587,7 +1587,7 @@ RestrictProlongOperator restrictProlongOperator()
     const MaterialLawParams& materialLawParams(unsigned globalDofIdx) const
     {   
        // materialLawManager_->materialLawParams(globalDofIdx).definalize();
-        return materialLawManager_->materialLawParams(0);
+        return materialLawManager_->materialLawParams(globalDofIdx);
     }
 
     const MaterialLawParams& materialLawParams(unsigned globalDofIdx, FaceDir::DirEnum facedir) const
@@ -1740,7 +1740,8 @@ RestrictProlongOperator restrictProlongOperator()
         // use the initial temperature of the DOF if temperature is not a primary
         // variable
         unsigned globalDofIdx = context.globalSpaceIndex(spaceIdx, timeIdx);
-        return initialFluidStates_[globalDofIdx].temperature(/*phaseIdx=*/0);
+        const auto&entity = context.stencil(timeIdx).entity(spaceIdx);
+        return initialFluidStates_[container_[entity].preAdaptIndex].temperature(/*phaseIdx=*/0);
     }
 
     /*!
@@ -2478,8 +2479,8 @@ private:
         std::vector<int> postAdaptIndex ;
         postAdaptIndex.reserve(gridView.indexSet().size(0));
 
-        std::vector<MaterialLawParams>  materialLawParams;
-        materialLawParams.reserve(gridView.indexSet().size(0));
+        //std::vector<MaterialLawParams>  materialLawParams;
+        //materialLawParams.reserve(gridView.indexSet().size(0));
         std::vector<bool> is_cell_Perf{};
         std::vector<int> pvt_region_idx{};
 
@@ -2488,7 +2489,7 @@ private:
         const auto& elementMapper = this->model().elementMapper();
         auto& sol = this->model().solution(/*timeIdx=*/0);
         for (; it != endIt; ++it) {
-            postAdaptIndex.push_back(container_[*it].preAdaptIndex) ;
+           // postAdaptIndex.push_back(container_[*it].preAdaptIndex) ;
             unsigned globalElemIdx = elementMapper.index(*it);
             auto& priVars = sol[globalElemIdx];
             priVars.setPrimaryVarsMeaningWater(container_[*it].wm);
@@ -2503,16 +2504,17 @@ private:
             pvt_region_idx.emplace_back(container_[*it].pvtRegionIdx);
         }
         
-        size_t numDof = this->model().numGridDof();
-        for (size_t dofIdx = 0; dofIdx < numDof; ++ dofIdx) {
-            materialLawParams[dofIdx].finalize();
-        }
+     //   size_t numDof = this->model().numGridDof();
+     //   for (size_t dofIdx = 0; dofIdx < numDof; ++ dofIdx) {
+    //        materialLawParams[dofIdx].finalize();
+    //    }
         //materialLawManager_->setMaterialLawParams(materialLawParams);
         // Opm::EnsureFinalized();
         // for (size_t dofIdx = 0; dofIdx < numDof; ++ dofIdx) {
         //     materialLawManager_->materialLawParams_[dofIdx].finalize();
         // }
         //setMaterialLawParams(materialLawParams);
+        is_cell_Perf.resize(gridView.indexSet().size(0));
         wellModel_.is_cell_perforated_=is_cell_Perf;
     }
 
@@ -2534,25 +2536,43 @@ private:
     void updateReferencePorosity_()
     {
         const auto& simulator = this->simulator();
+        auto gridView = simulator.vanguard().gridView();
         const auto& vanguard = simulator.vanguard();
         const auto& eclState = vanguard.eclState();
 
-        size_t numDof = this->model().numGridDof();
+        size_t numDof = gridView.size(0);
 
         this->referencePorosity_[/*timeIdx=*/0].resize(numDof);
 
         const auto& fp = eclState.fieldProps();
         const std::vector<double> porvData = fp.porv(false);
         const std::vector<int> actnumData = fp.actnum();
-        for (size_t dofIdx = 0; dofIdx < numDof; ++ dofIdx) {
-            Scalar poreVolume = porvData[0];
+      //  for (size_t dofIdx = 0; dofIdx < numDof; ++ dofIdx) {
+      //      Scalar poreVolume = porvData[0];
 
             // we define the porosity as the accumulated pore volume divided by the
             // geometric volume of the element. Note that -- in pathetic cases -- it can
             // be larger than 1.0!
-            Scalar dofVolume = simulator.model().dofTotalVolume(0);
+      //      Scalar dofVolume = simulator.model().dofTotalVolume(0);
+      //      assert(dofVolume > 0.0);
+     //       this->referencePorosity_[/*timeIdx=*/0][dofIdx] = poreVolume/dofVolume;
+     //   }
+        
+        auto it = gridView.template begin<0>();
+        const auto& endIt = gridView.template end<0>();
+        const auto& elementMapper = this->model().elementMapper();
+        auto& sol = this->model().solution(/*timeIdx=*/0);
+        for (; it != endIt; ++it) {
+            unsigned globalElemIdx = elementMapper.index(*it);    
+            Scalar poreVolume = porvData[simulator.problem().container_[*it].preAdaptIndex];
+
+            // we define the porosity as the accumulated pore volume divided by the
+            // geometric volume of the element. Note that -- in pathetic cases -- it can
+            // be larger than 1.0!
+            Scalar dofVolume = simulator.model().dofTotalVolume(globalElemIdx);
             assert(dofVolume > 0.0);
-            this->referencePorosity_[/*timeIdx=*/0][dofIdx] = poreVolume/dofVolume;
+            assert(poreVolume > 1.0e-2);
+            this->referencePorosity_[/*timeIdx=*/0][globalElemIdx] = poreVolume/dofVolume;
         }
     }
 

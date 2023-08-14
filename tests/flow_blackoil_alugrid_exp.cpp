@@ -50,16 +50,16 @@ namespace Opm{
 public:
         EclProblemNew(Simulator& simulator): EclProblem<TypeTag>(simulator){
         }
-        template <class Context, class FluidState>
-       void updateRelperms( const Context& context,
-            std::array<Evaluation,numPhases> &mobility,
-            DirectionalMobilityPtr &dirMob,
-            FluidState &fluidState,
-            unsigned dofIdx, unsigned timeIdx) const
-        {
-            OPM_TIMEBLOCK_LOCAL(updateRelperms);
-            Parent::updateRelperms(context, mobility, dirMob, fluidState, dofIdx, timeIdx);
-        };
+        //template <class Context, class FluidState>
+       //void updateRelperms( const Context& context,
+      //      std::array<Evaluation,numPhases> &mobility,
+      //      DirectionalMobilityPtr &dirMob,
+     //       FluidState &fluidState,
+     //       unsigned dofIdx, unsigned timeIdx) const
+     //   {
+     //       OPM_TIMEBLOCK_LOCAL(updateRelperms);
+     //       Parent::updateRelperms(context, mobility, dirMob, fluidState, dofIdx, timeIdx);
+     //   };
 };
        template<typename TypeTag>
     class BlackOilModelDynamic: public FIBlackOilModel<TypeTag>{
