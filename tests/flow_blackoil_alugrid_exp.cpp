@@ -21,12 +21,22 @@
 #include <opm/models/common/transfluxmodule.hh>
 #include <opm/models/discretization/ecfv/ecfvdiscretization.hh>
 #include <dune/alugrid/grid.hh>
+#include <opm/grid/CpGrid.hpp>
 #include <ebos/eclproblem.hh>
 #include <opm/flowdynamicgrid/eclproblemdynamic.hh>
 #include <opm/simulators/flow/Main.hpp>
 #include <opm/models/blackoil/blackoillocalresidualtpfa.hh>
 #include <opm/models/discretization/common/fvbaselinearizer.hh>
 #include <opm/models/discretization/common/fvbaseintensivequantities.hh>
+// these are not explicitly instanced in library
+#include <ebos/collecttoiorank_impl.hh>
+#include <ebos/eclgenericproblem_impl.hh>
+#include <ebos/eclgenericthresholdpressure_impl.hh>
+#include <ebos/eclgenerictracermodel_impl.hh>
+#include <ebos/ecltransmissibility_impl.hh>
+#include <ebos/eclgenericwriter_impl.hh>
+#include <ebos/equil/initstateequil_impl.hh>
+#include <opm/models/discretization/common/fvbasediscretizationfemadapt.hh>
 //#include <opm/material/fluidmatrixinteractions/EclMaterialLawManagerTable.hpp>
 namespace Opm{
     template<typename TypeTag>
@@ -71,6 +81,13 @@ public:
         using Simulator = GetPropType<TypeTag, Properties::Simulator>;
         using FluidSystem = GetPropType<TypeTag, Properties::FluidSystem>;
         using IntensiveQuantities = GetPropType<TypeTag, Properties::IntensiveQuantities>;
+        
+        using Indices = GetPropType<TypeTag, Properties::Indices>;
+        using Scalar = GetPropType<TypeTag, Properties::Scalar>;
+        static constexpr int numEq = Indices::numEq;
+        using VectorBlockType = Dune::FieldVector<Scalar, numEq>;
+        using BVector = Dune::BlockVector<VectorBlockType>;
+        using SolutionVector = GetPropType<TypeTag, Properties::SolutionVector>;
         enum {
         historySize = getPropValue<TypeTag, Properties::TimeDiscHistorySize>(),
         };
@@ -96,11 +113,42 @@ public:
 
         auxMod->applyInitial();
     }
-           void invalidateAndUpdateIntensiveQuantities(unsigned timeIdx) const
-           {
-       OPM_TIMEBLOCK_LOCAL(invalidateAndUpdateIntensiveQuantities);
-       Parent::invalidateAndUpdateIntensiveQuantities(timeIdx);
+    
+        /*!
+     * \brief Called by the update() method when the grid should be refined.
+     */
+    void adaptGrid()
+    {
+
     }
+
+    void updateSolution(const BVector& dx)
+    {
+         OPM_TIMEBLOCK_LOCAL(updateSolution);
+         auto& ebosNewtonMethod = this->simulator_.model().newtonMethod();
+         SolutionVector& solution = this->simulator_.model().solution(/*timeIdx=*/0);
+
+         ebosNewtonMethod.update_(/*nextSolution=*/solution,
+                                  /*curSolution=*/solution,
+                                  /*update=*/dx,
+                                  /*resid=*/dx); // the update routines of the blac
+                                                 // oil model do not care about the
+                                                 // residual
+
+         // if the solution is updated, the intensive quantities need to be recalculated
+         {
+            OPM_TIMEBLOCK_LOCAL(invalidateAndUpdateIntensiveQuantities);
+            this->simulator_.model().invalidateAndUpdateIntensiveQuantities(/*timeIdx=*/0);
+            //ebosSimulator_.problem().eclWriter()->mutableEclOutputModule().invalidateLocalData();
+         }
+     }
+    
+
+ //          void invalidateAndUpdateIntensiveQuantities(unsigned timeIdx) const
+ //          {
+ //      OPM_TIMEBLOCK_LOCAL(invalidateAndUpdateIntensiveQuantities);
+ //      Parent::invalidateAndUpdateIntensiveQuantities(timeIdx);
+ //   }
         //     IntensiveQuantities intensiveQuantities(unsigned globalIdx, unsigned timeIdx) const{
         //     OPM_TIMEBLOCK_LOCAL(intensiveQuantitiesNoCache);
         //     const auto& primaryVar = this->solution(timeIdx)[globalIdx];
@@ -153,11 +201,19 @@ struct EclFlowProblemAlugrid {
         static const int dim = 3;
         using type = Dune::ALUGrid<dim, dim, Dune::cube, Dune::nonconforming >;
     };
+    // alugrid need cp grid as equilgrid
+    template<class TypeTag>
+    struct EquilGrid<TypeTag, TTag::EclFlowProblemAlugrid> {
+    using type = Dune::CpGrid;
+    };
     template<class TypeTag>
     struct Problem<TypeTag, TTag::EclFlowProblemAlugrid> {
         using type = EclProblemDynamic<TypeTag>;
     };
-    
+    template<class TypeTag>
+    struct Vanguard<TypeTag, TTag::EclFlowProblemAlugrid> {
+        using type = Opm::EclAluGridVanguard<TypeTag>;
+    };
 template<class TypeTag>
 struct EclEnableAquifers<TypeTag, TTag::EclFlowProblemAlugrid> {
     static constexpr bool value = false;
@@ -191,6 +247,32 @@ template <class TypeTag>
 struct FluxModule<TypeTag, TTag::EclFlowProblemAlugrid> {
     using type = TransFluxModule<TypeTag>;
 };
+template<class TypeTag>
+struct BaseDiscretizationType<TypeTag,TTag::EclFlowProblemAlugrid> {
+    using type = FvBaseDiscretizationFemAdapt<TypeTag>;
+};
+template<class TypeTag>
+struct DiscreteFunctionSpace<TypeTag, TTag::EclFlowProblemAlugrid>
+{
+private:
+    using Scalar = GetPropType<TypeTag, Properties::Scalar>  ;
+    using GridPart = GetPropType<TypeTag, Properties::GridPart>;
+    enum { numEq = getPropValue<TypeTag, Properties::NumEq>() };
+    using FunctionSpace = Dune::Fem::FunctionSpace<typename GridPart::GridType::ctype,
+                                                   Scalar,
+                                                   GridPart::GridType::dimensionworld,
+                                                   numEq>;
+public:
+    using type = Dune::Fem::FiniteVolumeSpace< FunctionSpace, GridPart, 0 >;
+};
+
+template<class TypeTag>
+struct DiscreteFunction<TypeTag, TTag::EclFlowProblemAlugrid> {
+    using DiscreteFunctionSpace  = GetPropType<TypeTag, Properties::DiscreteFunctionSpace>;
+    using PrimaryVariables  = GetPropType<TypeTag, Properties::PrimaryVariables>;
+    using type = Dune::Fem::ISTLBlockVectorDiscreteFunction<DiscreteFunctionSpace, PrimaryVariables>;
+};
+
 }
 }
 int main(int argc, char** argv)
