@@ -975,20 +975,36 @@ public:
     {
         ParentType::gridChanged();
         this->model().finishInit();
-        const auto& vanguard = this->simulator().vanguard();
+        auto& simulator = this->simulator();
+        const auto& eclState = simulator.vanguard().eclState();
+        const auto& vanguard = simulator.vanguard();
         unsigned ntpvt = vanguard.eclState().runspec().tabdims().getNumPVTTables();
         size_t numDof = this->model().numGridDof();
-        if (FluidSystem::phaseIsActive(FluidSystem::oilPhaseIdx)) {
-            this->maxDRs_.resize(ntpvt, 1e30);
-            this->dRsDtOnlyFreeGas_.resize(ntpvt, false);
-            this->lastRs_.resize(numDof, 0.0);
-            this->maxDRv_.resize(ntpvt, 1e30);
-            this->lastRv_.resize(numDof, 0.0);
-            this->maxOilSaturation_.resize(numDof, 0.0);
+          
+        this->initFluidSystem_();
+
+        // deal with DRSDT
+        this->mixControls_.init(this->model().numGridDof(),
+                                this->episodeIndex(),
+                                eclState.runspec().tabdims().getNumPVTTables());
+
+        if (FluidSystem::phaseIsActive(FluidSystem::oilPhaseIdx) &&
+            FluidSystem::phaseIsActive(FluidSystem::gasPhaseIdx)) {
+            this->maxOilSaturation_.resize(this->model().numGridDof(), 0.0);
         }
         this->simulator().vanguard().updateCellDepths_();
         this->simulator().vanguard().updateCellThickness_();
-        this->readRockParameters_(this->simulator().vanguard().cellCenterDepths());
+
+        this->readRockParameters_(simulator.vanguard().cellCenterDepths(),
+                                  [&simulator](const unsigned idx)
+                                  {
+                                      std::array<int,dim> coords;
+                                      simulator.vanguard().cartesianCoordinate(idx, coords);
+                                      for (auto& c : coords) {
+                                          ++c;
+                                      }
+                                      return coords;
+                                  });
         updateMaterialParameters_();
         readThermalParameters_();
         wellModel_.gridChanged();
@@ -1015,6 +1031,7 @@ void fillContainerForGridAdaptation()
             container_[elem].preAdaptIndex = elemIdx;
             preAdaptGridIndex_[elemIdx]=elemIdx;
         }
+        
     
     }
     
@@ -1028,6 +1045,9 @@ void fillContainerForGridAdaptation()
         int episodeIdx = this->simulator().episodeIndex();
         for(const auto& elem: elements(gridView, Dune::Partitions::interior))
         {
+             if (elem.partitionType() != Dune::InteriorEntity)
+                 continue;
+
             elemCtx.updateAll(elem);
             int elemIdx = elemCtx.globalSpaceIndex(/*dofIdx=*/0, /*timeIdx=*/0);
             const auto& priVars = elemCtx.primaryVars(/*spaceIdx=*/0, /*timeIdx=*/0);
@@ -1058,11 +1078,11 @@ void fillContainerForGridAdaptation()
                 
                 const Scalar indicator =
                     (maxSat - minSat);///(std::max<Scalar>(0.01, maxSat+minSat)/2);
-                if( indicator > 0.5 && elem.level() < 2 ) {
+                if( indicator > 0.5 && elem.level() < 1 ) {
                     grid.mark( 1, elem );
                     ++ numMarked;
 
-                    std::cout << "refine cell " << nDofs << std::endl;
+                    std::cout << "refine cell " << elemIdx << std::endl;
                 }
                 else
                 {
@@ -1190,7 +1210,7 @@ RestrictProlongOperator restrictProlongOperator()
 
         // Evaluate UDQ assign statements to make sure the settings are
         // available as UDA controls for the current report step.
-        actionHandler_.evalUDQAssignments(episodeIdx, simulator.vanguard().udqState());
+        //actionHandler_.evalUDQAssignments(episodeIdx, simulator.vanguard().udqState());
 
         if (episodeIdx >= 0) {
             const auto& oilVap = schedule[episodeIdx].oilvap();
@@ -1298,7 +1318,7 @@ void endTimeStep()
         }
         }
         bool isSubStep = !EWOMS_GET_PARAM(TypeTag, bool, EnableWriteAllSolutions) && !this->simulator().episodeWillBeOver();
-        eclWriter_->evalSummaryState(isSubStep);
+        //eclWriter_->evalSummaryState(isSubStep);
 
         int episodeIdx = this->episodeIndex();
 
@@ -1811,7 +1831,7 @@ void endTimeStep()
             unsigned indexInInside  = context.intersection(spaceIdx).indexInInside();
             unsigned interiorDofIdx = context.interiorScvIndex(spaceIdx, timeIdx);
             unsigned globalDofIdx = context.globalSpaceIndex(interiorDofIdx, timeIdx);
-            unsigned pvtRegionIdx = pvtRegionIndex(context, spaceIdx, timeIdx);
+            unsigned pvtRegionIdx = pvtRegionIndex(context, interiorDofIdx, timeIdx);
             const auto [type, massrate] = boundaryCondition(globalDofIdx, indexInInside);
             if (type == BCType::THERMAL)
                 values.setThermalFlow(context, spaceIdx, timeIdx, boundaryFluidState(globalDofIdx, indexInInside));
@@ -2544,27 +2564,8 @@ protected:
         const auto& vanguard = simulator.vanguard();
         const auto& eclState = vanguard.eclState();
 
-        // the PVT and saturation region numbers
-        this->updatePvtnum_();
-        this->updateSatnum_();
-
-        // the MISC region numbers (solvent model)
-        this->updateMiscnum_();
-        // the PLMIX region numbers (polymer model)
-        this->updatePlmixnum_();
-
-        // directional relative permeabilities
-        this->updateKrnum_();
-        ////////////////////////////////
-        // porosity
-        updateReferencePorosity_();
-        this->referencePorosity_[1] = this->referencePorosity_[0];
-        ////////////////////////////////
-
         ////////////////////////////////
         // fluid-matrix interactions (saturation functions; relperm/capillary pressure)
-        //materialLawManager_ = std::make_shared<EclMaterialLawManager>();
-        //materialLawManager_->initFromState(eclState);
         auto gridView = this->simulator().vanguard().gridView();
         std::vector<int> postAdaptIndex ;
         postAdaptIndex.reserve(gridView.indexSet().size(0));
@@ -2579,13 +2580,14 @@ protected:
         const auto& elementMapper = this->model().elementMapper();
         auto& sol = this->model().solution(/*timeIdx=*/0);
         for (; it != endIt; ++it) {
-           // postAdaptIndex.push_back(container_[*it].preAdaptIndex) ;
             unsigned globalElemIdx = elementMapper.index(*it);
             auto& priVars = sol[globalElemIdx];
+            postAdaptIndex.emplace_back( container_[*it].preAdaptIndex);
             priVars.setPrimaryVarsMeaningWater(container_[*it].wm);
             priVars.setPrimaryVarsMeaningPressure(container_[*it].pm);
             priVars.setPrimaryVarsMeaningGas(container_[*it].gm);
             priVars.setPrimaryVarsMeaningBrine(container_[*it].bm);
+            priVars.setPvtRegionIndex(container_[*it].pvtRegionIdx);
             // MaterialLawParams  mlp = container_[*it].matLawParams;
             // Opm::EnsureFinalized();
             // mlp.finalize();
@@ -2593,19 +2595,25 @@ protected:
             is_cell_Perf.emplace_back(container_[*it].isCellPerforation);
             pvt_region_idx.emplace_back(container_[*it].pvtRegionIdx);
         }
-        
-     //   size_t numDof = this->model().numGridDof();
-     //   for (size_t dofIdx = 0; dofIdx < numDof; ++ dofIdx) {
-    //        materialLawParams[dofIdx].finalize();
-    //    }
-        //materialLawManager_->setMaterialLawParams(materialLawParams);
-        // Opm::EnsureFinalized();
-        // for (size_t dofIdx = 0; dofIdx < numDof; ++ dofIdx) {
-        //     materialLawManager_->materialLawParams_[dofIdx].finalize();
-        // }
-        //setMaterialLawParams(materialLawParams);
         is_cell_Perf.resize(gridView.indexSet().size(0));
         wellModel_.is_cell_perforated_=is_cell_Perf;
+        
+
+        // the PVT and saturation region numbers
+        this->updatePvtnum_(postAdaptIndex);
+        this->updateSatnum_(postAdaptIndex);
+
+        // the MISC region numbers (solvent model)
+        this->updateMiscnum_(postAdaptIndex);
+        // the PLMIX region numbers (polymer model)
+        this->updatePlmixnum_(postAdaptIndex);
+
+        // directional relative permeabilities
+        this->updateKrnum_(postAdaptIndex);
+        ////////////////////////////////
+        // porosity
+        updateAdaptedPorosity_();
+        this->referencePorosity_[1] = this->referencePorosity_[0];
     }
 
 
@@ -2659,13 +2667,50 @@ protected:
             // we define the porosity as the accumulated pore volume divided by the
             // geometric volume of the element. Note that -- in pathetic cases -- it can
             // be larger than 1.0!
-            Scalar dofVolume = simulator.model().dofTotalVolume(globalElemIdx);
+            Scalar dofVolume = simulator.model().dofTotalVolume(simulator.problem().container_[*it].preAdaptIndex);
             assert(dofVolume > 0.0);
-            assert(poreVolume > 1.0e-2);
             this->referencePorosity_[/*timeIdx=*/0][globalElemIdx] = poreVolume/dofVolume;
         }
     }
 
+    void updateAdaptedPorosity_()
+    {
+        const auto& simulator = this->simulator();
+        auto gridView = simulator.vanguard().gridView();
+        const auto& vanguard = simulator.vanguard();
+        const auto& eclState = vanguard.eclState();
+
+        size_t numDof = gridView.size(0);
+
+        this->referencePorosity_[/*timeIdx=*/0].resize(numDof);
+
+        const auto& fp = eclState.fieldProps();
+        const std::vector<double> porvData = fp.porv(false);
+        const std::vector<int> actnumData = fp.actnum();
+      //  for (size_t dofIdx = 0; dofIdx < numDof; ++ dofIdx) {
+      //      Scalar poreVolume = porvData[0];
+
+            // we define the porosity as the accumulated pore volume divided by the
+            // geometric volume of the element. Note that -- in pathetic cases -- it can
+            // be larger than 1.0!
+      //      Scalar dofVolume = simulator.model().dofTotalVolume(0);
+      //      assert(dofVolume > 0.0);
+     //       this->referencePorosity_[/*timeIdx=*/0][dofIdx] = poreVolume/dofVolume;
+     //   }
+        
+        auto it = gridView.template begin<0>();
+        const auto& endIt = gridView.template end<0>();
+        const auto& elementMapper = this->model().elementMapper();
+        auto& sol = this->model().solution(/*timeIdx=*/0);
+        for (; it != endIt; ++it) {
+            unsigned globalElemIdx = elementMapper.index(*it);    
+            Scalar poreVolume = porvData[simulator.problem().container_[*it].preAdaptIndex];
+
+            // we define the porosity as the accumulated pore volume divided by the
+            // geometric volume of the element. Note that -- in pathetic cases -- it can
+            this->referencePorosity_[/*timeIdx=*/0][globalElemIdx] = this->referencePorosity_[/*timeIdx=*/1][simulator.problem().container_[*it].preAdaptIndex];
+        }
+    }
     void readInitialCondition_()
     {
         const auto& simulator = this->simulator();

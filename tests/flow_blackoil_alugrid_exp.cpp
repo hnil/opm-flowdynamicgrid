@@ -24,6 +24,7 @@
 #include <opm/grid/CpGrid.hpp>
 #include <ebos/eclproblem.hh>
 #include <opm/flowdynamicgrid/eclproblemdynamic.hh>
+#include <opm/models/discretization/common/fvbasegradientcalculator.hh>
 #include <opm/simulators/flow/Main.hpp>
 #include <opm/models/blackoil/blackoillocalresidualtpfa.hh>
 #include <opm/models/discretization/common/fvbaselinearizer.hh>
@@ -77,6 +78,7 @@ public:
         using GridView = GetPropType<TypeTag, Properties::GridView>;
         using Element = typename GridView::template Codim<0>::Entity;
         using ElementContext = GetPropType<TypeTag, Properties::ElementContext>;
+        using ParentType = GetPropType<TypeTag, Properties::DiscIntensiveQuantities>;
         using ElementIterator = typename GridView::template Codim<0>::Iterator;
         using Simulator = GetPropType<TypeTag, Properties::Simulator>;
         using FluidSystem = GetPropType<TypeTag, Properties::FluidSystem>;
@@ -117,14 +119,14 @@ public:
         /*!
      * \brief Called by the update() method when the grid should be refined.
      */
-    void adaptGrid()
-    {
+  //  void adaptGrid()
+  //  {
 
-    }
+//    }
 
     void updateSolution(const BVector& dx)
     {
-         OPM_TIMEBLOCK_LOCAL(updateSolution);
+         OPM_TIMEBLOCK(updateSolution);
          auto& ebosNewtonMethod = this->simulator_.model().newtonMethod();
          SolutionVector& solution = this->simulator_.model().solution(/*timeIdx=*/0);
 
@@ -142,7 +144,12 @@ public:
             //ebosSimulator_.problem().eclWriter()->mutableEclOutputModule().invalidateLocalData();
          }
      }
-    
+   //  void update(const ElementContext& elemCtx, unsigned dofIdx, unsigned timeIdx)
+   // {
+   //     OPM_TIMEBLOCK_LOCAL(update);
+   //     ParentType::update(elemCtx, dofIdx, timeIdx);
+   //     OPM_TIMEBLOCK_LOCAL(blackoilIntensiveQuanititiesUpdate);
+  //  }   
 
  //          void invalidateAndUpdateIntensiveQuantities(unsigned timeIdx) const
  //          {
@@ -247,14 +254,29 @@ template <class TypeTag>
 struct FluxModule<TypeTag, TTag::EclFlowProblemAlugrid> {
     using type = TransFluxModule<TypeTag>;
 };
+
+//template<class TypeTag>
+//struct GradientCalculator<TypeTag, TTag::EclFlowProblemAlugrid> {
+//    using type = FvBaseGradientCalculator<TypeTag>;
+//};
+
 template<class TypeTag>
 struct BaseDiscretizationType<TypeTag,TTag::EclFlowProblemAlugrid> {
     using type = FvBaseDiscretizationFemAdapt<TypeTag>;
 };
 template<class TypeTag>
+struct GridPart<TypeTag, TTag::EclFlowProblemAlugrid>
+{
+    using Grid = GetPropType<TypeTag, Properties::Grid>;
+    using type = Dune::Fem::AdaptiveLeafGridPart<Grid>;
+};
+
+template<class TypeTag>
+struct GridView<TypeTag, TTag::EclFlowProblemAlugrid> { using type = typename GetPropType<TypeTag, Properties::GridPart>::GridViewType; };
+
+template<class TypeTag>
 struct DiscreteFunctionSpace<TypeTag, TTag::EclFlowProblemAlugrid>
 {
-private:
     using Scalar = GetPropType<TypeTag, Properties::Scalar>  ;
     using GridPart = GetPropType<TypeTag, Properties::GridPart>;
     enum { numEq = getPropValue<TypeTag, Properties::NumEq>() };
@@ -262,7 +284,6 @@ private:
                                                    Scalar,
                                                    GridPart::GridType::dimensionworld,
                                                    numEq>;
-public:
     using type = Dune::Fem::FiniteVolumeSpace< FunctionSpace, GridPart, 0 >;
 };
 
@@ -278,6 +299,8 @@ struct DiscreteFunction<TypeTag, TTag::EclFlowProblemAlugrid> {
 int main(int argc, char** argv)
 {
     using TypeTag = Opm::Properties::TTag::EclFlowProblemAlugrid;
-    auto mainObject = Opm::Main(argc, argv);
-    return mainObject.runStatic<TypeTag>();
+    // auto mainObject = Opm::Main(argc, argv);
+    // return mainObject.runStatic<TypeTag>();
+    Opm::registerEclTimeSteppingParameters<TypeTag>();
+    return Opm::start<TypeTag>(argc,argv);
 }
