@@ -16,7 +16,10 @@
   You should have received a copy of the GNU General Public License
   along with OPM.  If not, see <http://www.gnu.org/licenses/>.
 */
+#define DISABLE_ALUGRID_SFC_ORDERING 1
 #include "config.h"
+#include <dune/alugrid/grid.hh>
+#include <ebos/eclalugridvanguard.hh>
 #include <opm/simulators/flow/Main.hpp>
 #include <opm/models/common/transfluxmodule.hh>
 #include <opm/models/discretization/ecfv/ecfvdiscretization.hh>
@@ -25,7 +28,6 @@
 #include <ebos/eclproblem.hh>
 #include <opm/flowdynamicgrid/eclproblemdynamic.hh>
 #include <opm/models/discretization/common/fvbasegradientcalculator.hh>
-#include <opm/simulators/flow/Main.hpp>
 #include <opm/models/blackoil/blackoillocalresidualtpfa.hh>
 #include <opm/models/discretization/common/fvbaselinearizer.hh>
 #include <opm/models/discretization/common/fvbaseintensivequantities.hh>
@@ -102,6 +104,29 @@ public:
 //       Parent::invalidateIntensiveQuantitiesCache(timeIdx);
 //    }
 // Overwriting that function to avoid throwing error when having dune-fem
+
+    void updateCartesianToCompressedMapping_()
+    {
+        OPM_TIMEBLOCK_LOCAL(updateCartesianToCompressedMapping_);
+        std::size_t num_cells = this->asImp_().grid().leafGridView().size(0);
+        this->is_interior_.resize(num_cells);
+        
+        Opm::Properties::ElementMapper elemMapper(this->gridView(), Dune::mcmgElementLayout());
+        for (const auto& element : elements(this->gridView()))
+        {
+            const auto elemIdx = elemMapper.index(element);
+            unsigned cartesianCellIdx = this->cartesianIndex(elemIdx);
+            this->cartesianToCompressed_[cartesianCellIdx] = elemIdx;
+            if (element.partitionType() == Dune::InteriorEntity)
+            {
+                this->is_interior_[elemIdx] = 1;
+            }
+            else
+            {
+                this->is_interior_[elemIdx] = 0;
+            }
+        }
+    }
       void addAuxiliaryModule(BaseAuxiliaryModule<TypeTag>* auxMod)
     {
         OPM_TIMEBLOCK_LOCAL(addAuxiliaryModule);
@@ -255,10 +280,10 @@ struct FluxModule<TypeTag, TTag::EclFlowProblemAlugrid> {
     using type = TransFluxModule<TypeTag>;
 };
 
-//template<class TypeTag>
-//struct GradientCalculator<TypeTag, TTag::EclFlowProblemAlugrid> {
-//    using type = FvBaseGradientCalculator<TypeTag>;
-//};
+template<class TypeTag>
+struct GradientCalculator<TypeTag, TTag::EclFlowProblemAlugrid> {
+    using type = FvBaseGradientCalculator<TypeTag>;
+};
 
 template<class TypeTag>
 struct BaseDiscretizationType<TypeTag,TTag::EclFlowProblemAlugrid> {
@@ -285,6 +310,7 @@ struct DiscreteFunctionSpace<TypeTag, TTag::EclFlowProblemAlugrid>
                                                    GridPart::GridType::dimensionworld,
                                                    numEq>;
     using type = Dune::Fem::FiniteVolumeSpace< FunctionSpace, GridPart, 0 >;
+    
 };
 
 template<class TypeTag>
@@ -294,13 +320,34 @@ struct DiscreteFunction<TypeTag, TTag::EclFlowProblemAlugrid> {
     using type = Dune::Fem::ISTLBlockVectorDiscreteFunction<DiscreteFunctionSpace, PrimaryVariables>;
 };
 
+template<class TypeTag>
+struct FluidSystem<TypeTag, TTag::EclFlowProblemAlugrid>
+{
+private:
+    using Scalar = GetPropType<TypeTag, Properties::Scalar>;
+
+public:
+    using type = Opm::BlackOilFluidSystem<Scalar>;
+};
+
+
 }
 }
 int main(int argc, char** argv)
 {
+  //  OPM_TIMEBLOCK(fullSimulation);
+  //  using TypeTag = Opm::Properties::TTag::EclFlowProblemAlugrid;
+
+  //  auto mainObject = std::make_unique<Opm::Main>(argc, argv);
+  //  auto ret = mainObject->runStatic<TypeTag>();
+    // Destruct mainObject as the destructor calls MPI_Finalize!
+  //  mainObject.reset();
+
+    //Opm::Main mainObject(argc, argv);
+    //auto ret = mainObject.runStatic<TypeTag>();
+   // return ret;
+   
     using TypeTag = Opm::Properties::TTag::EclFlowProblemAlugrid;
-    // auto mainObject = Opm::Main(argc, argv);
-    // return mainObject.runStatic<TypeTag>();
-    Opm::registerEclTimeSteppingParameters<TypeTag>();
-    return Opm::start<TypeTag>(argc,argv);
+    auto mainObject = Opm::Main(argc, argv);
+    return mainObject.runStatic<TypeTag>();
 }

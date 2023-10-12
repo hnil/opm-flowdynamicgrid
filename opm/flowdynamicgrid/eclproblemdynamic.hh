@@ -975,11 +975,11 @@ public:
     {
         ParentType::gridChanged();
         this->model().finishInit();
+        this->simulator().vanguard().resetOrdering_();
         auto& simulator = this->simulator();
         const auto& eclState = simulator.vanguard().eclState();
         const auto& vanguard = simulator.vanguard();
         unsigned ntpvt = vanguard.eclState().runspec().tabdims().getNumPVTTables();
-        size_t numDof = this->model().numGridDof();
           
         this->initFluidSystem_();
 
@@ -995,6 +995,7 @@ public:
         this->simulator().vanguard().updateCellDepths_();
         this->simulator().vanguard().updateCellThickness_();
 
+
         this->readRockParameters_(simulator.vanguard().cellCenterDepths(),
                                   [&simulator](const unsigned idx)
                                   {
@@ -1007,6 +1008,7 @@ public:
                                   });
         updateMaterialParameters_();
         readThermalParameters_();
+        this->model().linearizer().updateDiscretizationParameters();
         wellModel_.gridChanged();
 
     }
@@ -1077,8 +1079,8 @@ void fillContainerForGridAdaptation()
                 }
                 
                 const Scalar indicator =
-                    (maxSat - minSat);///(std::max<Scalar>(0.01, maxSat+minSat)/2);
-                if( indicator > 0.5 && elem.level() < 1 ) {
+                    (maxSat - minSat)/(std::max<Scalar>(0.01, maxSat+minSat)/2);
+                if( indicator > 0.9 && elem.level() < 3 ) {
                     grid.mark( 1, elem );
                     ++ numMarked;
 
@@ -3348,6 +3350,7 @@ private:
 public:
     GlobalContainer container_;
     std::vector<int> preAdaptGridIndex_;
+    std::vector<unsigned int> ordering_;
 };
 
 } // namespace Opm
