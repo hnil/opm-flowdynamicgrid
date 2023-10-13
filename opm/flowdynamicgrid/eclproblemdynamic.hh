@@ -605,7 +605,7 @@ class EclProblemDynamic : public GetPropType<TypeTag, Properties::BaseProblem>
     using Scalar = GetPropType<TypeTag, Properties::Scalar>;
     using GridView = GetPropType<TypeTag, Properties::GridView>;
     using Stencil = GetPropType<TypeTag, Properties::Stencil>;
-    enum { codim = Stencil::Entity::codimension }; 
+    enum { codim = Stencil::Entity::codimension };
     using FluidSystem = GetPropType<TypeTag, Properties::FluidSystem>;
     using GlobalEqVector = GetPropType<TypeTag, Properties::GlobalEqVector>;
     using EqVector = GetPropType<TypeTag, Properties::EqVector>;
@@ -905,7 +905,7 @@ public:
                                   });
         readMaterialParameters_();
         readThermalParameters_();
- 
+
         // Re-ordering in case of ALUGrid
         std::function<unsigned int(unsigned int)> gridToEquilGrid = [&simulator](unsigned int i) {
             return simulator.vanguard().gridIdxToEquilGridIdx(i);
@@ -980,7 +980,7 @@ public:
         const auto& eclState = simulator.vanguard().eclState();
         const auto& vanguard = simulator.vanguard();
         unsigned ntpvt = vanguard.eclState().runspec().tabdims().getNumPVTTables();
-          
+
         this->initFluidSystem_();
 
         // deal with DRSDT
@@ -1028,15 +1028,15 @@ void fillContainerForGridAdaptation()
             container_[elem].wm = sol[elemIdx].primaryVarsMeaningWater();
             container_[elem].pm = sol[elemIdx].primaryVarsMeaningPressure();
             container_[elem].gm = sol[elemIdx].primaryVarsMeaningGas();
-            container_[elem].bm = sol[elemIdx].primaryVarsMeaningBrine();            
+            container_[elem].bm = sol[elemIdx].primaryVarsMeaningBrine();
             //container_[elem].matLawParams = materialLawParams(elemIdx);
             container_[elem].preAdaptIndex = elemIdx;
             preAdaptGridIndex_[elemIdx]=elemIdx;
         }
-        
-    
+
+
     }
-    
+
     unsigned markForGridAdaptation()
     {
         unsigned numMarked = 0;
@@ -1077,14 +1077,20 @@ void fillContainerForGridAdaptation()
                     maxSat = std::max(maxSat,
                                       Toolbox::value(intQuant.fluidState().saturation(phaseIdx)));
                 }
-                
+
                 const Scalar indicator =
-                    (maxSat - minSat)/(std::max<Scalar>(0.01, maxSat+minSat)/2);
-                if( indicator > 0.9 && elem.level() < 3 ) {
+                    (maxSat - minSat);///(std::max<Scalar>(0.01, maxSat+minSat)/2);
+                if( indicator > 0.3 && elem.level() < 3 ) {
                     grid.mark( 1, elem );
                     ++ numMarked;
 
                     std::cout << "refine cell " << elemIdx << std::endl;
+                }
+                else if (indicator < 0.025 && elem.level() > 0)
+                {
+                    grid.mark( -1, elem );
+                    std::cout << "coarse cell " << elemIdx << std::endl;
+                    ++ numMarked;
                 }
                 else
                 {
@@ -1407,7 +1413,7 @@ void endTimeStep()
                                            unsigned spaceIdx,
                                            unsigned timeIdx) const
     {
-        
+
         const auto&entity = context.stencil(timeIdx).entity(spaceIdx);
         unsigned globalSpaceIdx = context.globalSpaceIndex(spaceIdx, timeIdx);
         return transmissibilities_.permeability(container_[entity].preAdaptIndex);
@@ -1612,7 +1618,7 @@ void endTimeStep()
     }
 
     const MaterialLawParams& materialLawParams(unsigned globalDofIdx) const
-    {   
+    {
        // materialLawManager_->materialLawParams(globalDofIdx).definalize();
         return materialLawManager_->materialLawParams(globalDofIdx);
     }
@@ -1729,7 +1735,7 @@ void endTimeStep()
         }
     }
 
-   size_t globalToEclIndex(  size_t elem) {    
+   size_t globalToEclIndex(  size_t elem) {
     return container_[elem].preAdaptIndex;
     }
 
@@ -1746,7 +1752,7 @@ void endTimeStep()
     template <class Context>
     unsigned pvtRegionIndex(const Context& context, unsigned spaceIdx, unsigned timeIdx) const
     { const auto&entity = context.stencil(timeIdx).entity(spaceIdx);
-     return pvtRegionIndex(container_[entity].preAdaptIndex); 
+     return pvtRegionIndex(container_[entity].preAdaptIndex);
      }
 
     using EclGenericProblem<GridView,FluidSystem,Scalar>::satnumRegionIndex;
@@ -2599,7 +2605,7 @@ protected:
         }
         is_cell_Perf.resize(gridView.indexSet().size(0));
         wellModel_.is_cell_perforated_=is_cell_Perf;
-        
+
 
         // the PVT and saturation region numbers
         this->updatePvtnum_(postAdaptIndex);
@@ -2657,13 +2663,13 @@ protected:
       //      assert(dofVolume > 0.0);
      //       this->referencePorosity_[/*timeIdx=*/0][dofIdx] = poreVolume/dofVolume;
      //   }
-        
+
         auto it = gridView.template begin<0>();
         const auto& endIt = gridView.template end<0>();
         const auto& elementMapper = this->model().elementMapper();
         auto& sol = this->model().solution(/*timeIdx=*/0);
         for (; it != endIt; ++it) {
-            unsigned globalElemIdx = elementMapper.index(*it);    
+            unsigned globalElemIdx = elementMapper.index(*it);
             Scalar poreVolume = porvData[simulator.problem().container_[*it].preAdaptIndex];
 
             // we define the porosity as the accumulated pore volume divided by the
@@ -2699,13 +2705,13 @@ protected:
       //      assert(dofVolume > 0.0);
      //       this->referencePorosity_[/*timeIdx=*/0][dofIdx] = poreVolume/dofVolume;
      //   }
-        
+
         auto it = gridView.template begin<0>();
         const auto& endIt = gridView.template end<0>();
         const auto& elementMapper = this->model().elementMapper();
         auto& sol = this->model().solution(/*timeIdx=*/0);
         for (; it != endIt; ++it) {
-            unsigned globalElemIdx = elementMapper.index(*it);    
+            unsigned globalElemIdx = elementMapper.index(*it);
             Scalar poreVolume = porvData[simulator.problem().container_[*it].preAdaptIndex];
 
             // we define the porosity as the accumulated pore volume divided by the
@@ -3038,7 +3044,7 @@ protected:
                                             - gasSaturationData[dofIdx]);
 
             //////
-            // set phase pressures 
+            // set phase pressures
             //////
             Scalar pressure = pressureData[dofIdx]; // oil pressure (or gas pressure for water-gas system or water pressure for single phase)
 

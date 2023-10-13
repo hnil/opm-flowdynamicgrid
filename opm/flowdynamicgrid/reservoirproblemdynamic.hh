@@ -580,15 +580,24 @@ public:
                     maxSat = std::max(maxSat,
                                       Toolbox::value(intQuant.fluidState().saturation(phaseIdx)));
                 }
-                
                 const Scalar indicator =
-                    (maxSat - minSat);///(std::max<Scalar>(0.01, maxSat+minSat)/2);
-                if( indicator > 0.5 && elem.level() < 2 ) {
+                    (maxSat - minSat)/(std::max<Scalar>(0.01, maxSat+minSat)/2);
+                if( indicator > 0.2 && elem.level() < 2 ) {
                     grid.mark( 1, elem );
                     ++ numMarked;
-
-                    std::cout << "refine cell " << nDofs << std::endl;
                 }
+                else if ( indicator < 0.025 ) {
+                    grid.mark( -1, elem );
+                    ++ numMarked;
+                }
+                // const Scalar indicator =
+                //     (maxSat - minSat);///(std::max<Scalar>(0.01, maxSat+minSat)/2);
+                // if( indicator > 0.5 && elem.level() < 2 ) {
+                //     grid.mark( 1, elem );
+                //     ++ numMarked;
+
+                //     std::cout << "refine cell " << nDofs << std::endl;
+                // }
                 else
                 {
                     grid.mark( 0, elem );
