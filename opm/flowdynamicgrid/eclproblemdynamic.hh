@@ -1007,6 +1007,7 @@ public:
                                       return coords;
                                   });
         updateMaterialParameters_();
+        updateBoundaryConditions_();
         readThermalParameters_();
         this->model().linearizer().updateDiscretizationParameters();
         wellModel_.gridChanged();
@@ -1080,7 +1081,7 @@ void fillContainerForGridAdaptation()
 
                 const Scalar indicator =
                     (maxSat - minSat);///(std::max<Scalar>(0.01, maxSat+minSat)/2);
-                if( indicator > 0.3 && elem.level() < 3 ) {
+                if( indicator > 0.3 && elem.level() < 2 ) {
                     grid.mark( 1, elem );
                     ++ numMarked;
 
@@ -2014,6 +2015,8 @@ void endTimeStep()
           source(rate, container_[entity].preAdaptIndex, timeIdx);
     }
 
+
+
     void source(RateVector& rate,
                 unsigned globalDofIdx,
                 unsigned timeIdx) const
@@ -2575,8 +2578,11 @@ protected:
         ////////////////////////////////
         // fluid-matrix interactions (saturation functions; relperm/capillary pressure)
         auto gridView = this->simulator().vanguard().gridView();
-        std::vector<int> postAdaptIndex ;
-        postAdaptIndex.reserve(gridView.indexSet().size(0));
+       // std::vector<int> postAdaptIndex ;
+        //postAdaptIndex.reserve(gridView.indexSet().size(0));
+
+        int numElements = gridView.size(/*codim=*/0);
+        postAdaptGridIndex_.reserve(numElements);
 
         //std::vector<MaterialLawParams>  materialLawParams;
         //materialLawParams.reserve(gridView.indexSet().size(0));
@@ -2590,7 +2596,7 @@ protected:
         for (; it != endIt; ++it) {
             unsigned globalElemIdx = elementMapper.index(*it);
             auto& priVars = sol[globalElemIdx];
-            postAdaptIndex.emplace_back( container_[*it].preAdaptIndex);
+            postAdaptGridIndex_.emplace_back( container_[*it].preAdaptIndex);
             priVars.setPrimaryVarsMeaningWater(container_[*it].wm);
             priVars.setPrimaryVarsMeaningPressure(container_[*it].pm);
             priVars.setPrimaryVarsMeaningGas(container_[*it].gm);
@@ -2606,18 +2612,18 @@ protected:
         is_cell_Perf.resize(gridView.indexSet().size(0));
         wellModel_.is_cell_perforated_=is_cell_Perf;
 
-
+        //const auto& postAdaptGridIndex_ =postAdaptIndex;
         // the PVT and saturation region numbers
-        this->updatePvtnum_(postAdaptIndex);
-        this->updateSatnum_(postAdaptIndex);
+        this->updatePvtnum_(postAdaptGridIndex_);
+        this->updateSatnum_(postAdaptGridIndex_);
 
         // the MISC region numbers (solvent model)
-        this->updateMiscnum_(postAdaptIndex);
+        this->updateMiscnum_(postAdaptGridIndex_);
         // the PLMIX region numbers (polymer model)
-        this->updatePlmixnum_(postAdaptIndex);
+        this->updatePlmixnum_(postAdaptGridIndex_);
 
         // directional relative permeabilities
-        this->updateKrnum_(postAdaptIndex);
+        this->updateKrnum_(postAdaptGridIndex_);
         ////////////////////////////////
         // porosity
         updateAdaptedPorosity_();
@@ -3182,6 +3188,45 @@ private:
         pffDofData_.update(distFn);
     }
 
+
+    void updateSrcConditions_()
+    {
+            const auto& simulator = this->simulator();
+            const auto& vanguard = simulator.vanguard();
+            std::size_t numCartDof = vanguard.cartesianSize();
+            unsigned numElems = vanguard.gridView().size(/*codim=*/0);
+            std::vector<int> cartesianToCompressedElemIdx(numCartDof, -1);
+            std::vector<int> adaptcartesianToCompressedElemIdx(numCartDof, -1);
+            for (unsigned elemIdx = 0; elemIdx < numElems; ++elemIdx)
+                adaptcartesianToCompressedElemIdx[elemIdx] = vanguard.cartesianIndex(postAdaptGridIndex_[elemIdx]);
+    }
+
+    void updateBoundaryConditions_()
+    {
+            const auto& simulator = this->simulator();
+            const auto& vanguard = simulator.vanguard();
+            const auto& bcconfig = vanguard.eclState().getSimulationConfig().bcconfig();
+            std::size_t numCartDof = vanguard.cartesianSize();
+            unsigned numElems = vanguard.gridView().size(/*codim=*/0);
+            std::vector<int> cartesianToCompressedElemIdx(numCartDof, -1);
+            std::vector<int> adaptcartesianToCompressedElemIdx(numElems, -1);
+            for (unsigned elemIdx = 0; elemIdx < numElems; ++elemIdx)
+                adaptcartesianToCompressedElemIdx[elemIdx] = vanguard.cartesianIndex(postAdaptGridIndex_[elemIdx]);
+                       
+            adbcindex_.resize(numElems, 0);
+
+            for (const auto& bcface : bcconfig) {
+                std::vector<int>& data = bcindex_(bcface.dir);
+                const int index = bcface.index;
+                for (unsigned i = 0; i < 6; ++i) {
+                    for (unsigned elemIdx = 0; elemIdx < numElems; ++elemIdx)
+                        adbcindex_.data[i][elemIdx] = simulator.problem().bcindex_.data[i][adaptcartesianToCompressedElemIdx[elemIdx]];
+                }
+            }
+            bcindex_.resize(numElems,0);
+            const auto& bcindex_=adbcindex_;
+    }
+
     void readBoundaryConditions_()
     {
         const auto& simulator = this->simulator();
@@ -3190,6 +3235,43 @@ private:
         if (bcconfig.size() > 0) {
             nonTrivialBoundaryConditions_ = true;
 
+            if (nonWellsSourceTerms_) {
+
+               std::size_t numCartDof = vanguard.cartesianSize();
+               unsigned numElems = vanguard.gridView().size(/*codim=*/0);
+               std::vector<int> cartesianToCompressedElemIdx(numCartDof, -1);
+               std::vector<int> adaptcartesianToCompressedElemIdx(numCartDof, -1);
+
+               for (unsigned elemIdx = 0; elemIdx < numElems; ++elemIdx)
+                   cartesianToCompressedElemIdx[vanguard.cartesianIndex(postAdaptGridIndex_[elemIdx])] = postAdaptGridIndex_[elemIdx];
+
+               srcindex_.resize(numElems, 0);
+               auto loopAndApplySrc = [&cartesianToCompressedElemIdx,
+                                    &vanguard](const auto& srccell,
+                                               auto apply)
+               {
+                   for (int i = srccell.i1; i <= srccell.i2; ++i) {
+                       for (int j = srccell.j1; j <= srccell.j2; ++j) {
+                           for (int k = srccell.k1; k <= srccell.k2; ++k) {
+                               std::array<int, 3> tmp = {i,j,k};
+                               auto elemIdx = cartesianToCompressedElemIdx[vanguard.cartesianIndex(tmp)];
+                               if (elemIdx >= 0)
+                                   apply(elemIdx);
+                           }
+                       }
+                   }
+               };
+
+               for (const auto& srccell : bcconfig) {
+               std::vector<int>& data = srcindex_(srccell.dir);
+               const int index = srccell.index;
+                   loopAndApplySrc(srccell,
+                                   [&data,index](int elemIdx)
+                                   { data[elemIdx] = index; });
+               }
+            
+           }
+            else {
             std::size_t numCartDof = vanguard.cartesianSize();
             unsigned numElems = vanguard.gridView().size(/*codim=*/0);
             std::vector<int> cartesianToCompressedElemIdx(numCartDof, -1);
@@ -3220,6 +3302,7 @@ private:
                                  [&data,index](int elemIdx)
                                  { data[elemIdx] = index; });
             }
+           }
         }
     }
     // this method applies the runtime constraints specified via the deck and/or command
@@ -3351,11 +3434,46 @@ private:
         }
     };
 
+    template<class T>
+    struct SRCData
+    {
+        std::array<std::vector<T>,1> data;
+        
+        void resize(size_t size, T defVal)
+        {
+            for (auto& d : data)
+                d.resize(size, defVal);
+        }
+
+        const std::vector<T>& operator()(FaceDir::DirEnum dir) const
+        {
+            if (dir == FaceDir::DirEnum::Unknown)
+                throw std::runtime_error("Tried to access BC data for the 'Unknown' direction");
+            int idx = 0;
+            int div = static_cast<int>(dir);
+            while ((div /= 2) >= 1)
+              ++idx;
+            assert(idx >= 0 && idx <= 5);
+            return data[idx];
+        }
+
+        std::vector<T>& operator()(FaceDir::DirEnum dir)
+        {
+            return const_cast<std::vector<T>&>(std::as_const(*this)(dir));
+        }
+
+    };
+
     BCData<int> bcindex_;
+    SRCData<int> srcindex_;
+    BCData<int> adbcindex_;
+    SRCData<int> adsrcindex_;
     bool nonTrivialBoundaryConditions_ = false;
+    bool nonWellsSourceTerms_ = false;
 public:
     GlobalContainer container_;
     std::vector<int> preAdaptGridIndex_;
+    std::vector<int> postAdaptGridIndex_;
     std::vector<unsigned int> ordering_;
 };
 
