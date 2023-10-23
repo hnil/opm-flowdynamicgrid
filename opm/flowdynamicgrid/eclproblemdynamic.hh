@@ -1021,8 +1021,12 @@ void fillContainerForGridAdaptation()
         auto gridView = this->simulator().vanguard().gridView();
         int numElements = gridView.size(/*codim=*/0);
         preAdaptGridIndex_.resize(numElements);
+        postAdaptGridIndex_.resize(numElements);
         auto& sol = this->model().solution(/*timeIdx=*/0);
-        for(const auto& elem: elements(gridView, Dune::Partitions::interior)) {
+        auto elemIt = gridView.template begin</*codim=*/0, Dune::Interior_Partition>();
+        auto elemEndIt = gridView.template end</*codim=*/0, Dune::Interior_Partition>();
+        for(; elemIt != elemEndIt; ++elemIt) {
+            const auto& elem = *elemIt ;
             elemCtx.updatePrimaryStencil(elem);
             int elemIdx = elemCtx.globalSpaceIndex(/*dofIdx=*/0, /*timeIdx=*/0);
             const auto& priVars = elemCtx.primaryVars(/*spaceIdx=*/0, /*timeIdx=*/0);
@@ -1033,6 +1037,7 @@ void fillContainerForGridAdaptation()
             //container_[elem].matLawParams = materialLawParams(elemIdx);
             container_[elem].preAdaptIndex = elemIdx;
             preAdaptGridIndex_[elemIdx]=elemIdx;
+            postAdaptGridIndex_[elemIdx]=elemIdx;
         }
 
 
@@ -1046,11 +1051,13 @@ void fillContainerForGridAdaptation()
         auto& grid = this->simulator().vanguard().grid();
         auto& sol = this->model().solution(/*timeIdx=*/0);
         int episodeIdx = this->simulator().episodeIndex();
-        for(const auto& elem: elements(gridView, Dune::Partitions::interior))
+        auto elemIt = gridView.template begin</*codim=*/0, Dune::Interior_Partition>();
+        auto elemEndIt = gridView.template end</*codim=*/0, Dune::Interior_Partition>();
+        for (; elemIt != elemEndIt; ++elemIt)
         {
-             if (elem.partitionType() != Dune::InteriorEntity)
-                 continue;
-
+             //if (elem.partitionType() != Dune::InteriorEntity)
+             //    continue;
+            const auto& elem = *elemIt ;
             elemCtx.updateAll(elem);
             int elemIdx = elemCtx.globalSpaceIndex(/*dofIdx=*/0, /*timeIdx=*/0);
             const auto& priVars = elemCtx.primaryVars(/*spaceIdx=*/0, /*timeIdx=*/0);
@@ -1061,7 +1068,7 @@ void fillContainerForGridAdaptation()
             //       container_[elem].matLawParams = materialLawParams(elemIdx);
             //container_[elem].preAdaptIndex = elemIdx;
             //preAdaptGridIndex_[elemIdx]=elemIdx;
-            if (wellModel().isCellPerforated(elemIdx)||(episodeIdx==0))
+            if (wellModel().isCellPerforated(elemIdx)||(this->simulator().episodeIndex()==0))
                 continue;
             // HACK: this should better be part of an AdaptionCriterion class
             for (unsigned phaseIdx = 0; phaseIdx < numPhases; ++phaseIdx) {
@@ -1069,6 +1076,15 @@ void fillContainerForGridAdaptation()
                     continue;
                 Scalar minSat = 1e100 ;
                 Scalar maxSat = -1e100;
+                bool hasSamePrimaryVarsMeaningWater = true;
+                bool hasSamePrimaryVarsMeaningPressure = true;
+                bool hasSamePrimaryVarsMeaningGas = true;
+                bool hasSamePrimaryVarsMeaningBrine = true; 
+                const auto& primaryVarsMeaningWaterBase = elemCtx.primaryVars(0, /*timeIdx=*/0 ).primaryVarsMeaningWater();
+                const auto& primaryVarsMeaningPressureBase = elemCtx.primaryVars(0, /*timeIdx=*/0 ).primaryVarsMeaningPressure();
+                const auto& primaryVarsMeaningGasBase = elemCtx.primaryVars(0, /*timeIdx=*/0 ).primaryVarsMeaningGas();
+                const auto& primaryVarsMeaningBrineBase = elemCtx.primaryVars(0, /*timeIdx=*/0 ).primaryVarsMeaningBrine();
+                
                 size_t nDofs = elemCtx.numDof(/*timeIdx=*/0);
                 for (unsigned dofIdx = 0; dofIdx < nDofs; ++dofIdx)
                 {
@@ -1077,8 +1093,17 @@ void fillContainerForGridAdaptation()
                                       Toolbox::value(intQuant.fluidState().saturation(phaseIdx)));
                     maxSat = std::max(maxSat,
                                       Toolbox::value(intQuant.fluidState().saturation(phaseIdx)));
+                 if(primaryVarsMeaningWaterBase != elemCtx.primaryVars(dofIdx, /*timeIdx=*/0 ).primaryVarsMeaningWater())
+                        hasSamePrimaryVarsMeaningWater = false;
+                 if(primaryVarsMeaningPressureBase != elemCtx.primaryVars(dofIdx, /*timeIdx=*/0 ).primaryVarsMeaningPressure())
+                        hasSamePrimaryVarsMeaningPressure = false;
+                 if(primaryVarsMeaningGasBase != elemCtx.primaryVars(dofIdx, /*timeIdx=*/0 ).primaryVarsMeaningGas())
+                        hasSamePrimaryVarsMeaningGas = false;
+                 if(primaryVarsMeaningBrineBase != elemCtx.primaryVars(dofIdx, /*timeIdx=*/0 ).primaryVarsMeaningBrine())
+                        hasSamePrimaryVarsMeaningBrine = false;                          
                 }
 
+                bool hasSamePrimaryVarsMeaning = (hasSamePrimaryVarsMeaningWater&&hasSamePrimaryVarsMeaningPressure&&hasSamePrimaryVarsMeaningGas&&hasSamePrimaryVarsMeaningBrine);
                 const Scalar indicator =
                     (maxSat - minSat);///(std::max<Scalar>(0.01, maxSat+minSat)/2);
                 if( indicator > 0.3 && elem.level() < 2 ) {
@@ -1087,7 +1112,7 @@ void fillContainerForGridAdaptation()
 
                     std::cout << "refine cell " << elemIdx << std::endl;
                 }
-                else if (indicator < 0.025 && elem.level() > 0)
+                else if ( hasSamePrimaryVarsMeaning && indicator < 0.025 && elem.level() > 0)
                 {
                     grid.mark( -1, elem );
                     std::cout << "coarse cell " << elemIdx << std::endl;
@@ -2582,21 +2607,26 @@ protected:
         //postAdaptIndex.reserve(gridView.indexSet().size(0));
 
         int numElements = gridView.size(/*codim=*/0);
-        postAdaptGridIndex_.reserve(numElements);
+        
+        postAdaptGridIndex_.clear();
 
         //std::vector<MaterialLawParams>  materialLawParams;
         //materialLawParams.reserve(gridView.indexSet().size(0));
         std::vector<bool> is_cell_Perf{};
         std::vector<int> pvt_region_idx{};
+        is_cell_Perf.reserve(gridView.indexSet().size(0));
+        pvt_region_idx.reserve(gridView.indexSet().size(0));
+        postAdaptGridIndex_.reserve(gridView.indexSet().size(0));
 
-        auto it = gridView.template begin<0>();
-        const auto& endIt = gridView.template end<0>();
+        auto it = gridView.template begin</*codim=*/0, Dune::Interior_Partition>();
+        const auto& endIt = gridView.template end</*codim=*/0, Dune::Interior_Partition>();
         const auto& elementMapper = this->model().elementMapper();
         auto& sol = this->model().solution(/*timeIdx=*/0);
         for (; it != endIt; ++it) {
             unsigned globalElemIdx = elementMapper.index(*it);
+           std::cout << "globalElemIdx " << globalElemIdx << std::endl; 
             auto& priVars = sol[globalElemIdx];
-            postAdaptGridIndex_.emplace_back( container_[*it].preAdaptIndex);
+            postAdaptGridIndex_.push_back( container_[*it].preAdaptIndex);
             priVars.setPrimaryVarsMeaningWater(container_[*it].wm);
             priVars.setPrimaryVarsMeaningPressure(container_[*it].pm);
             priVars.setPrimaryVarsMeaningGas(container_[*it].gm);
@@ -2606,7 +2636,7 @@ protected:
             // Opm::EnsureFinalized();
             // mlp.finalize();
             // materialLawParams.emplace_back(mlp);
-            is_cell_Perf.emplace_back(container_[*it].isCellPerforation);
+            is_cell_Perf.push_back(wellModel_.is_cell_perforated_[container_[*it].preAdaptIndex]);
             pvt_region_idx.emplace_back(container_[*it].pvtRegionIdx);
         }
         is_cell_Perf.resize(gridView.indexSet().size(0));
