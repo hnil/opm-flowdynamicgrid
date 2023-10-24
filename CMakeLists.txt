@@ -26,29 +26,29 @@ set( USE_OPENMP_DEFAULT OFF ) # Use of OpenMP is considered experimental
 # TODO: factor out the common parts in opm-common and opm-simulator as a cmake module
 
 if(SIBLING_SEARCH AND NOT opm-common_DIR)
-  # guess the sibling dir
-  get_filename_component(_leaf_dir_name ${PROJECT_BINARY_DIR} NAME)
-  get_filename_component(_parent_full_dir ${PROJECT_BINARY_DIR} DIRECTORY)
-  get_filename_component(_parent_dir_name ${_parent_full_dir} NAME)
-  #Try if <module-name>/<build-dir> is used
-  get_filename_component(_modules_dir ${_parent_full_dir} DIRECTORY)
-  if(IS_DIRECTORY ${_modules_dir}/opm-common/${_leaf_dir_name})
-    set(opm-common_DIR ${_modules_dir}/opm-common/${_leaf_dir_name})
-  else()
-    string(REPLACE ${PROJECT_NAME} opm-common _opm_common_leaf ${_leaf_dir_name})
-    if(NOT _leaf_dir_name STREQUAL _opm_common_leaf
-        AND IS_DIRECTORY ${_parent_full_dir}/${_opm_common_leaf})
-      # We are using build directories named <prefix><module-name><postfix>
-      set(opm-common_DIR ${_parent_full_dir}/${_opm_common_leaf})
-    elseif(IS_DIRECTORY ${_parent_full_dir}/opm-common)
-      # All modules are in a common build dir
-      set(opm-common_DIR "${_parent_full_dir}/opm-common")
-    endif()
-  endif()
+	# guess the sibling dir
+	get_filename_component(_leaf_dir_name ${PROJECT_BINARY_DIR} NAME)
+	get_filename_component(_parent_full_dir ${PROJECT_BINARY_DIR} DIRECTORY)
+	get_filename_component(_parent_dir_name ${_parent_full_dir} NAME)
+	#Try if <module-name>/<build-dir> is used
+	get_filename_component(_modules_dir ${_parent_full_dir} DIRECTORY)
+	if(IS_DIRECTORY ${_modules_dir}/opm-common/${_leaf_dir_name})
+		set(opm-common_DIR ${_modules_dir}/opm-common/${_leaf_dir_name})
+	else()
+		string(REPLACE ${PROJECT_NAME} opm-common _opm_common_leaf ${_leaf_dir_name})
+		if(NOT _leaf_dir_name STREQUAL _opm_common_leaf
+				AND IS_DIRECTORY ${_parent_full_dir}/${_opm_common_leaf})
+			# We are using build directories named <prefix><module-name><postfix>
+			set(opm-common_DIR ${_parent_full_dir}/${_opm_common_leaf})
+		elseif(IS_DIRECTORY ${_parent_full_dir}/opm-common)
+			# All modules are in a common build dir
+			set(opm-common_DIR "${_parent_full_dir}/opm-common")
+		endif()
+	endif()
 endif()
 if(opm-common_DIR AND NOT IS_DIRECTORY ${opm-common_DIR})
-  message(WARNING "Value ${opm-common_DIR} passed to variable"
-    " opm-common_DIR is not a directory")
+	message(WARNING "Value ${opm-common_DIR} passed to variable"
+		" opm-common_DIR is not a directory")
 endif()
 
 find_package(opm-common REQUIRED)
@@ -57,7 +57,7 @@ include(OpmInit)
 OpmSetPolicies()
 
 if(USE_MPI)
-  set(HDF5_PREFER_PARALLEL TRUE)
+	set(HDF5_PREFER_PARALLEL TRUE)
 endif()
 
 # not the same location as most of the other projects? this hook overrides
@@ -88,20 +88,20 @@ include ("${project}-prereqs")
 include (CMakeLists_files.cmake)
 
 macro (config_hook)
-  opm_need_version_of ("dune-common")
-  opm_need_version_of ("dune-istl")
-  if(dune-fem_FOUND)
-      opm_need_version_of ("dune-fem")
-  endif()
-  opm_need_version_of ("opm-models")
+	opm_need_version_of ("dune-common")
+	opm_need_version_of ("dune-istl")
+	if(dune-fem_FOUND)
+			opm_need_version_of ("dune-fem")
+	endif()
+	opm_need_version_of ("opm-models")
 	opm_need_version_of ("opm-simulators")
-  if(NOT fmt_FOUND)
-    add_definitions(-DFMT_HEADER_ONLY)
-    list(APPEND EXTRA_INCLUDES SYSTEM ${PROJECT_SOURCE_DIR}/external/fmtlib/include)
-  endif()
-  include_directories(${EXTRA_INCLUDES})
+	if(NOT fmt_FOUND)
+		add_definitions(-DFMT_HEADER_ONLY)
+		list(APPEND EXTRA_INCLUDES SYSTEM ${PROJECT_SOURCE_DIR}/external/fmtlib/include)
+	endif()
+	include_directories(${EXTRA_INCLUDES})
 
-  include(UseDamaris)
+	include(UseDamaris)
 endmacro (config_hook)
 
 macro (prereqs_hook)
@@ -112,22 +112,22 @@ endmacro (fortran_hook)
 
 macro (files_hook)
 	if(MPI_FOUND AND HDF5_FOUND AND NOT HDF5_IS_PARALLEL)
-    message(WARNING "When building parallel OPM flow we need a "
-      "parallel version of hdf5, but found only a serial one. "
-      "Please install a parallel hdf5 library for MPI "
-      "(e.g with apt-get install libhdf5-mpi-dev) and do a clean "
-      "rebuild (build after \"make clean\"). Continuing with "
-      "only normal restart without hdf5 file support.")
-    set(HDF5_FOUND OFF)
-    unset(HAVE_HDF5)
-  endif()
+		message(WARNING "When building parallel OPM flow we need a "
+			"parallel version of hdf5, but found only a serial one. "
+			"Please install a parallel hdf5 library for MPI "
+			"(e.g with apt-get install libhdf5-mpi-dev) and do a clean "
+			"rebuild (build after \"make clean\"). Continuing with "
+			"only normal restart without hdf5 file support.")
+		set(HDF5_FOUND OFF)
+		unset(HAVE_HDF5)
+	endif()
 	include (CMakeLists_files.cmake)
 endmacro (files_hook)
 
 macro (tests_hook)
 endmacro (tests_hook)
- 
-    
+
+
 # all setup common to the OPM library modules is done here
 include (OpmLibMain)
 
@@ -143,28 +143,39 @@ set(CMAKE_PROJECT_NAME "${PROJECT_NAME}")
 add_custom_target(opm-flowdynamicgrid_prepare)
 
 opm_add_test(lens_immiscible_ecfv_ad_alu
-             TEST_ARGS --end-time=3000)
+						 TEST_ARGS --end-time=3000)
 opm_add_test(reservoir_blackoil_ecfv_alu
 	TEST_ARGS --end-time=8750000)
 
 opm_add_test(flow_blackoil_alugrid_exp
-  ONLY_COMPILE
-  ALWAYS_ENABLE
-  DEPENDS opmsimulators
-  LIBRARIES opmsimulators
-  SOURCES
-  tests/flow_blackoil_alugrid_exp.cpp
-  $<TARGET_OBJECTS:moduleVersionExp>)
+	ONLY_COMPILE
+	ALWAYS_ENABLE
+	DEPENDS opmsimulators
+	LIBRARIES opmsimulators
+	SOURCES
+	tests/flow_blackoil_alugrid_exp.cpp
+	$<TARGET_OBJECTS:moduleVersionExp>)
 target_compile_definitions(flow_blackoil_alugrid_exp PRIVATE USE_ALUGRID)
 
+opm_add_test(flow_oilgas_alugrid_exp
+	ONLY_COMPILE
+	ALWAYS_ENABLE
+	DEPENDS opmsimulators
+	LIBRARIES opmsimulators
+	SOURCES
+	tests/flow_oilgas_alugrid_exp.cpp
+	$<TARGET_OBJECTS:moduleVersionExp>)
+target_compile_definitions(flow_oilgas_alugrid_exp PRIVATE USE_ALUGRID)
+
+
 opm_add_test(ebos_alugrid
-  ONLY_COMPILE
-  ALWAYS_ENABLE
-  DEPENDS opmsimulators
-  LIBRARIES opmsimulators
-  SOURCES
-  tests/ebos_alugrid.cpp
-  $<TARGET_OBJECTS:moduleVersionExp>)
+	ONLY_COMPILE
+	ALWAYS_ENABLE
+	DEPENDS opmsimulators
+	LIBRARIES opmsimulators
+	SOURCES
+	tests/ebos_alugrid.cpp
+	$<TARGET_OBJECTS:moduleVersionExp>)
 
 
 # if(dune-alugrid_FOUND)
@@ -191,5 +202,3 @@ opm_add_test(ebos_alugrid
 # must link libraries after target 'opmsimulators' has been defined
 #install(DIRECTORY doc/man1 DESTINATION ${CMAKE_INSTALL_MANDIR}
 #  FILES_MATCHING PATTERN "*.1")
-
-
