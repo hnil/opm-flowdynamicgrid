@@ -812,7 +812,7 @@ public:
         MICPModule::initFromState(vanguard.eclState());
 
         // create the ECL writer
-        //eclWriter_ = std::make_unique<EclWriterType>(simulator);
+        eclWriter_ = std::make_unique<EclWriterType>(simulator);
 
         enableDriftCompensation_ = EWOMS_GET_PARAM(TypeTag, bool, EclEnableDriftCompensation);
 
@@ -1046,6 +1046,8 @@ void fillContainerForGridAdaptation()
     unsigned markForGridAdaptation()
     {
         unsigned numMarked = 0;
+        unsigned numMarked_refined = 0;
+        unsigned numMarked_coarsen = 0;
         ElementContext elemCtx( this->simulator() );
         auto gridView = this->simulator().vanguard().gridView();
         auto& grid = this->simulator().vanguard().grid();
@@ -1079,12 +1081,12 @@ void fillContainerForGridAdaptation()
                 bool hasSamePrimaryVarsMeaningWater = true;
                 bool hasSamePrimaryVarsMeaningPressure = true;
                 bool hasSamePrimaryVarsMeaningGas = true;
-                bool hasSamePrimaryVarsMeaningBrine = true; 
+                bool hasSamePrimaryVarsMeaningBrine = true;
                 const auto& primaryVarsMeaningWaterBase = elemCtx.primaryVars(0, /*timeIdx=*/0 ).primaryVarsMeaningWater();
                 const auto& primaryVarsMeaningPressureBase = elemCtx.primaryVars(0, /*timeIdx=*/0 ).primaryVarsMeaningPressure();
                 const auto& primaryVarsMeaningGasBase = elemCtx.primaryVars(0, /*timeIdx=*/0 ).primaryVarsMeaningGas();
                 const auto& primaryVarsMeaningBrineBase = elemCtx.primaryVars(0, /*timeIdx=*/0 ).primaryVarsMeaningBrine();
-                
+
                 size_t nDofs = elemCtx.numDof(/*timeIdx=*/0);
                 for (unsigned dofIdx = 0; dofIdx < nDofs; ++dofIdx)
                 {
@@ -1100,7 +1102,7 @@ void fillContainerForGridAdaptation()
                  if(primaryVarsMeaningGasBase != elemCtx.primaryVars(dofIdx, /*timeIdx=*/0 ).primaryVarsMeaningGas())
                         hasSamePrimaryVarsMeaningGas = false;
                  if(primaryVarsMeaningBrineBase != elemCtx.primaryVars(dofIdx, /*timeIdx=*/0 ).primaryVarsMeaningBrine())
-                        hasSamePrimaryVarsMeaningBrine = false;                          
+                        hasSamePrimaryVarsMeaningBrine = false;
                 }
 
                 bool hasSamePrimaryVarsMeaning = (hasSamePrimaryVarsMeaningWater&&hasSamePrimaryVarsMeaningPressure&&hasSamePrimaryVarsMeaningGas&&hasSamePrimaryVarsMeaningBrine);
@@ -1109,14 +1111,15 @@ void fillContainerForGridAdaptation()
                 if( indicator > 0.3 && elem.level() < 2 ) {
                     grid.mark( 1, elem );
                     ++ numMarked;
-
-                    std::cout << "refine cell " << elemIdx << std::endl;
+                    ++ numMarked_refined;
+                    //std::cout << "refine cell " << elemIdx << std::endl;
                 }
                 else if ( hasSamePrimaryVarsMeaning && indicator < 0.025 && elem.level() > 0)
                 {
                     grid.mark( -1, elem );
-                    std::cout << "coarse cell " << elemIdx << std::endl;
+                    //std::cout << "coarse cell " << elemIdx << std::endl;
                     ++ numMarked;
+                    ++ numMarked_coarsen;
                 }
                 else
                 {
@@ -1124,7 +1127,9 @@ void fillContainerForGridAdaptation()
                 }
             }
         }
-
+        std::cout << "Num coarsened cell " << numMarked_coarsen << std::endl;
+        std::cout << "Num refined cell" << numMarked_refined << std::endl;
+        std::cout << "Num marked" << numMarked << std::endl;
         // get global sum so that every proc is on the same page
         numMarked = this->simulator().vanguard().grid().comm().sum( numMarked );
 
@@ -1421,6 +1426,25 @@ void endTimeStep()
       //  if (enableEclOutput_){
       //      eclWriter_->writeOutput(isSubStep);
       //  }
+    }
+
+    std::vector<int> getWellGridMapping() const{
+        int org_size = this->simulator().vanguard().cartesianSize();//?
+        std::vector<int> mapping(org_size);
+        std::fill(mapping.begin(),mapping.end(),-1);
+        const auto& gridView = this->simulator().gridView();
+        //const auto& problem = this->simulator().problem();
+        const auto& model = this->simulator().model();
+        for(auto elem: elements(gridView)) {
+            if(elem.level() == 0){
+                int org_index = container_[elem].preAdaptIndex;
+                int new_index = model.elementMapper().index(elem);
+                //int new_index = problem.container_[elem].postAdaptIndex;
+                mapping[org_index] = new_index;
+                //std::cout << "Level 0 : preadapt" << org_index << " postadapt" << new_index << std::endl;
+            }
+        }
+        return mapping;
     }
 
     void finalizeOutput() {
@@ -2607,7 +2631,7 @@ protected:
         //postAdaptIndex.reserve(gridView.indexSet().size(0));
 
         int numElements = gridView.size(/*codim=*/0);
-        
+
         postAdaptGridIndex_.clear();
 
         //std::vector<MaterialLawParams>  materialLawParams;
@@ -2624,7 +2648,7 @@ protected:
         auto& sol = this->model().solution(/*timeIdx=*/0);
         for (; it != endIt; ++it) {
             unsigned globalElemIdx = elementMapper.index(*it);
-           std::cout << "globalElemIdx " << globalElemIdx << std::endl; 
+            //std::cout << "globalElemIdx " << globalElemIdx << std::endl;
             auto& priVars = sol[globalElemIdx];
             postAdaptGridIndex_.push_back( container_[*it].preAdaptIndex);
             priVars.setPrimaryVarsMeaningWater(container_[*it].wm);
@@ -3242,7 +3266,7 @@ private:
             std::vector<int> adaptcartesianToCompressedElemIdx(numElems, -1);
             for (unsigned elemIdx = 0; elemIdx < numElems; ++elemIdx)
                 adaptcartesianToCompressedElemIdx[elemIdx] = vanguard.cartesianIndex(postAdaptGridIndex_[elemIdx]);
-                       
+
             adbcindex_.resize(numElems, 0);
 
             for (const auto& bcface : bcconfig) {
@@ -3299,7 +3323,7 @@ private:
                                    [&data,index](int elemIdx)
                                    { data[elemIdx] = index; });
                }
-            
+
            }
             else {
             std::size_t numCartDof = vanguard.cartesianSize();
@@ -3468,7 +3492,7 @@ private:
     struct SRCData
     {
         std::array<std::vector<T>,1> data;
-        
+
         void resize(size_t size, T defVal)
         {
             for (auto& d : data)

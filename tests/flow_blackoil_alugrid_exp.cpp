@@ -18,6 +18,7 @@
 */
 #define DISABLE_ALUGRID_SFC_ORDERING 1
 #include "config.h"
+#include <opm/grid/cpgrid/GridHelpers.hpp>
 #include <dune/alugrid/grid.hh>
 #include <ebos/eclalugridvanguard.hh>
 #include <opm/simulators/flow/Main.hpp>
@@ -85,7 +86,7 @@ public:
         using Simulator = GetPropType<TypeTag, Properties::Simulator>;
         using FluidSystem = GetPropType<TypeTag, Properties::FluidSystem>;
         using IntensiveQuantities = GetPropType<TypeTag, Properties::IntensiveQuantities>;
-        
+
         using Indices = GetPropType<TypeTag, Properties::Indices>;
         using Scalar = GetPropType<TypeTag, Properties::Scalar>;
         static constexpr int numEq = Indices::numEq;
@@ -110,7 +111,7 @@ public:
         OPM_TIMEBLOCK_LOCAL(updateCartesianToCompressedMapping_);
         std::size_t num_cells = this->asImp_().grid().leafGridView().size(0);
         this->is_interior_.resize(num_cells);
-        
+
         Opm::Properties::ElementMapper elemMapper(this->gridView(), Dune::mcmgElementLayout());
         for (const auto& element : elements(this->gridView()))
         {
@@ -140,7 +141,7 @@ public:
 
         auxMod->applyInitial();
     }
-    
+
         /*!
      * \brief Called by the update() method when the grid should be refined.
      */
@@ -174,7 +175,7 @@ public:
    //     OPM_TIMEBLOCK_LOCAL(update);
    //     ParentType::update(elemCtx, dofIdx, timeIdx);
    //     OPM_TIMEBLOCK_LOCAL(blackoilIntensiveQuanititiesUpdate);
-  //  }   
+  //  }
 
  //          void invalidateAndUpdateIntensiveQuantities(unsigned timeIdx) const
  //          {
@@ -197,7 +198,7 @@ public:
         //     }
 
         // }
-       
+
        };
 }
 namespace Opm {
@@ -257,7 +258,7 @@ struct EclEnableAquifers<TypeTag, TTag::EclFlowProblemAlugrid> {
     //template<class TypeTag>
     //struct IntensiveQuantities<TypeTag, TTag::EclFlowProblemTest> {
     //using type = BlackOilIntensiveQuantitiesSimple<TypeTag>;
-    //};      
+    //};
 // use automatic differentiation for this simulator
 template<class TypeTag>
 struct LocalLinearizerSplice<TypeTag, TTag::EclFlowProblemAlugrid> { using type = TTag::AutoDiffLocalLinearizer; };
@@ -310,7 +311,7 @@ struct DiscreteFunctionSpace<TypeTag, TTag::EclFlowProblemAlugrid>
                                                    GridPart::GridType::dimensionworld,
                                                    numEq>;
     using type = Dune::Fem::FiniteVolumeSpace< FunctionSpace, GridPart, 0 >;
-    
+
 };
 
 template<class TypeTag>
@@ -346,7 +347,7 @@ int main(int argc, char** argv)
     //Opm::Main mainObject(argc, argv);
     //auto ret = mainObject.runStatic<TypeTag>();
    // return ret;
-   
+
     using TypeTag = Opm::Properties::TTag::EclFlowProblemAlugrid;
     auto mainObject = Opm::Main(argc, argv);
     return mainObject.runStatic<TypeTag>();
