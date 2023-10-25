@@ -1084,10 +1084,10 @@ void fillContainerForGridAdaptation()
             {
                 if( this->simulator().episodeIndex() !=0){
                     if( elem.level() != 0) {
-                        std::runtime_error("Refinement in well cells?");
+                        std::cout << "Refinement in wells ?? riski " << std::endl;
                     }
-                    std::cout << "Scip refinement in well cells" << std::endl;
-                    std::cout << "Original cell " << container_[elem].preAdaptIndex << " New cell " << elemIdx << " level "<< elem.level() << std::endl;
+                    //std::cout << "Scip refinement in well cells" << std::endl;
+                    //std::cout << "Original cell " << container_[elem].preAdaptIndex << " New cell " << elemIdx << " level "<< elem.level() << std::endl;
                 }
                 grid.mark( 0, elem );
             }else{
@@ -1131,18 +1131,18 @@ void fillContainerForGridAdaptation()
                     grid.mark( 1, elem );
                     ++ numMarked;
                     ++ numMarked_refined;
-                    std::cout << "refine cell " << elemIdx << " preadapt " << container_[elem].preAdaptIndex << std::endl;
+                    //std::cout << "refine cell " << elemIdx << " preadapt " << container_[elem].preAdaptIndex << std::endl;
                 }
                 else if ( hasSamePrimaryVarsMeaning && indicator < 0.025 && elem.level() > 0)
                 {
                     grid.mark( -1, elem );
-                    std::cout << "coarse cell " << elemIdx << " preadapt " << container_[elem].preAdaptIndex << std::endl;
+                    //std::cout << "coarse cell " << elemIdx << " preadapt " << container_[elem].preAdaptIndex << std::endl;
                     ++ numMarked;
                     ++ numMarked_coarsen;
                 }
                 else
                 {
-                    std::cout << "refine cell " << elemIdx << " preadapt " << container_[elem].preAdaptIndex << std::endl;
+                    //std::cout << "refine cell " << elemIdx << " preadapt " << container_[elem].preAdaptIndex << std::endl;
                     grid.mark( 0, elem );
                 }
             }
@@ -1457,13 +1457,13 @@ void endTimeStep()
         //const auto& problem = this->simulator().problem();
         const auto& model = this->simulator().model();
         for(auto elem: elements(gridView)) {
-            if(elem.level() == 0){
-                int org_index = container_[elem].preAdaptIndex;
-                int new_index = model.elementMapper().index(elem);
-                //int new_index = problem.container_[elem].postAdaptIndex;
-                mapping[org_index] = new_index;
-                //std::cout << "Level 0 : preadapt" << org_index << " postadapt" << new_index << std::endl;
-            }
+            //if(elem.level() == 0){
+            int org_index = container_[elem].preAdaptIndex;
+            int new_index = model.elementMapper().index(elem);
+            //int new_index = problem.container_[elem].postAdaptIndex;
+            mapping[org_index] = new_index;
+            //std::cout << "Level 0 : preadapt" << org_index << " postadapt" << new_index << std::endl;
+            //}
         }
         return mapping;
     }
