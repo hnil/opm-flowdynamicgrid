@@ -1045,6 +1045,15 @@ void fillContainerForGridAdaptation()
 
     unsigned markForGridAdaptation()
     {
+        // should be done once
+        std::vector<std::vector<int>> wellconnections = wellModel().getMaxWellConnections();
+        std::vector<bool> org_is_perforated(this->simulator().vanguard().cartesianSize(),false);
+        for(const auto& perfs : wellconnections){
+            for(const auto& perf : perfs){
+                org_is_perforated[perf] = true;
+            }
+        }
+
         unsigned numMarked = 0;
         unsigned numMarked_refined = 0;
         unsigned numMarked_coarsen = 0;
@@ -1070,8 +1079,18 @@ void fillContainerForGridAdaptation()
             //       container_[elem].matLawParams = materialLawParams(elemIdx);
             //container_[elem].preAdaptIndex = elemIdx;
             //preAdaptGridIndex_[elemIdx]=elemIdx;
-            if (wellModel().isCellPerforated(elemIdx)||(this->simulator().episodeIndex()==0))
-                continue;
+            //if (wellModel().isCellPerforated(elemIdx)||(this->simulator().episodeIndex()==0))
+            if (org_is_perforated[container_[elem].preAdaptIndex] ||(this->simulator().episodeIndex()==0))
+            {
+                if( this->simulator().episodeIndex() !=0){
+                    if( elem.level() != 0) {
+                        std::runtime_error("Refinement in well cells?");
+                    }
+                    std::cout << "Scip refinement in well cells" << std::endl;
+                    std::cout << "Original cell " << container_[elem].preAdaptIndex << " New cell " << elemIdx << " level "<< elem.level() << std::endl;
+                }
+                grid.mark( 0, elem );
+            }else{
             // HACK: this should better be part of an AdaptionCriterion class
             for (unsigned phaseIdx = 0; phaseIdx < numPhases; ++phaseIdx) {
                 if (!FluidSystem::phaseIsActive(phaseIdx))
@@ -1112,19 +1131,21 @@ void fillContainerForGridAdaptation()
                     grid.mark( 1, elem );
                     ++ numMarked;
                     ++ numMarked_refined;
-                    //std::cout << "refine cell " << elemIdx << std::endl;
+                    std::cout << "refine cell " << elemIdx << " preadapt " << container_[elem].preAdaptIndex << std::endl;
                 }
                 else if ( hasSamePrimaryVarsMeaning && indicator < 0.025 && elem.level() > 0)
                 {
                     grid.mark( -1, elem );
-                    //std::cout << "coarse cell " << elemIdx << std::endl;
+                    std::cout << "coarse cell " << elemIdx << " preadapt " << container_[elem].preAdaptIndex << std::endl;
                     ++ numMarked;
                     ++ numMarked_coarsen;
                 }
                 else
                 {
+                    std::cout << "refine cell " << elemIdx << " preadapt " << container_[elem].preAdaptIndex << std::endl;
                     grid.mark( 0, elem );
                 }
+            }
             }
         }
         std::cout << "Num coarsened cell " << numMarked_coarsen << std::endl;
