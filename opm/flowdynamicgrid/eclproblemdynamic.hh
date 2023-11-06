@@ -1055,9 +1055,9 @@ void fillContainerForGridAdaptation()
         auto elemEndIt = gridView.template end</*codim=*/0, Dune::Interior_Partition>();
         for (; elemIt != elemEndIt; ++elemIt)
         {
-             //if (elem.partitionType() != Dune::InteriorEntity)
-             //    continue;
-            const auto& elem = *elemIt ;
+            const auto& elem = *elemIt;
+            if (elem.partitionType() != Dune::InteriorEntity)
+               continue; 
             elemCtx.updateAll(elem);
             int elemIdx = elemCtx.globalSpaceIndex(/*dofIdx=*/0, /*timeIdx=*/0);
             const auto& priVars = elemCtx.primaryVars(/*spaceIdx=*/0, /*timeIdx=*/0);
@@ -2614,17 +2614,16 @@ protected:
         //materialLawParams.reserve(gridView.indexSet().size(0));
         std::vector<bool> is_cell_Perf{};
         std::vector<int> pvt_region_idx{};
-        is_cell_Perf.reserve(gridView.indexSet().size(0));
-        pvt_region_idx.reserve(gridView.indexSet().size(0));
+        is_cell_Perf.reserve(gridView.size(0));
+       // pvt_region_idx.reserve(gridView.size(0));
+        //postAdaptGridIndex_.reserve(gridView.indexSet().size(0));
         postAdaptGridIndex_.reserve(gridView.indexSet().size(0));
-
-        auto it = gridView.template begin</*codim=*/0, Dune::Interior_Partition>();
-        const auto& endIt = gridView.template end</*codim=*/0, Dune::Interior_Partition>();
+        auto it = gridView.template begin<0>();
+        const auto& endIt = gridView.template end<0>();
         const auto& elementMapper = this->model().elementMapper();
         auto& sol = this->model().solution(/*timeIdx=*/0);
         for (; it != endIt; ++it) {
             unsigned globalElemIdx = elementMapper.index(*it);
-           std::cout << "globalElemIdx " << globalElemIdx << std::endl; 
             auto& priVars = sol[globalElemIdx];
             postAdaptGridIndex_.push_back( container_[*it].preAdaptIndex);
             priVars.setPrimaryVarsMeaningWater(container_[*it].wm);
@@ -3236,25 +3235,27 @@ private:
             const auto& simulator = this->simulator();
             const auto& vanguard = simulator.vanguard();
             const auto& bcconfig = vanguard.eclState().getSimulationConfig().bcconfig();
-            std::size_t numCartDof = vanguard.cartesianSize();
-            unsigned numElems = vanguard.gridView().size(/*codim=*/0);
-            std::vector<int> cartesianToCompressedElemIdx(numCartDof, -1);
-            std::vector<int> adaptcartesianToCompressedElemIdx(numElems, -1);
-            for (unsigned elemIdx = 0; elemIdx < numElems; ++elemIdx)
-                adaptcartesianToCompressedElemIdx[elemIdx] = vanguard.cartesianIndex(postAdaptGridIndex_[elemIdx]);
+            if (bcconfig.size() > 0) {
+               std::size_t numCartDof = vanguard.cartesianSize();
+               unsigned numElems = vanguard.gridView().size(/*codim=*/0);
+               std::vector<int> cartesianToCompressedElemIdx(numCartDof, -1);
+               std::vector<int> adaptcartesianToCompressedElemIdx(numElems, -1);
+               for (unsigned elemIdx = 0; elemIdx < numElems; ++elemIdx)
+                    adaptcartesianToCompressedElemIdx[elemIdx] = vanguard.cartesianIndex(postAdaptGridIndex_[elemIdx]);
                        
-            adbcindex_.resize(numElems, 0);
+               adbcindex_.resize(numElems, 0);
 
-            for (const auto& bcface : bcconfig) {
-                std::vector<int>& data = bcindex_(bcface.dir);
-                const int index = bcface.index;
-                for (unsigned i = 0; i < 6; ++i) {
-                    for (unsigned elemIdx = 0; elemIdx < numElems; ++elemIdx)
-                        adbcindex_.data[i][elemIdx] = simulator.problem().bcindex_.data[i][adaptcartesianToCompressedElemIdx[elemIdx]];
-                }
+               for (const auto& bcface : bcconfig) {
+                   std::vector<int>& data = bcindex_(bcface.dir);
+                   const int index = bcface.index;
+                   for (unsigned i = 0; i < 6; ++i) {
+                       for (unsigned elemIdx = 0; elemIdx < numElems; ++elemIdx)
+                           adbcindex_.data[i][elemIdx] = simulator.problem().bcindex_.data[i][adaptcartesianToCompressedElemIdx[elemIdx]];
+                   }
+               }   
+               bcindex_.resize(numElems,0);
+               const auto& bcindex_=adbcindex_;
             }
-            bcindex_.resize(numElems,0);
-            const auto& bcindex_=adbcindex_;
     }
 
     void readBoundaryConditions_()

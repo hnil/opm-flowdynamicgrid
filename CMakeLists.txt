@@ -157,6 +157,16 @@ opm_add_test(flow_blackoil_alugrid_exp
   $<TARGET_OBJECTS:moduleVersionExp>)
 target_compile_definitions(flow_blackoil_alugrid_exp PRIVATE USE_ALUGRID)
 
+opm_add_test(flow_blackoil_cpgrid_exp
+  ONLY_COMPILE
+  ALWAYS_ENABLE
+  DEPENDS opmsimulators
+  LIBRARIES opmsimulators
+  SOURCES
+  tests/flow_blackoil_cpgrid_exp.cpp
+  $<TARGET_OBJECTS:moduleVersionExp>)
+target_compile_definitions(flow_blackoil_cpgrid_exp PRIVATE USE_ALUGRID)
+
 opm_add_test(ebos_alugrid
   ONLY_COMPILE
   ALWAYS_ENABLE
