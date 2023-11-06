@@ -167,7 +167,6 @@ opm_add_test(flow_oilgas_alugrid_exp
 	$<TARGET_OBJECTS:moduleVersionExp>)
 target_compile_definitions(flow_oilgas_alugrid_exp PRIVATE USE_ALUGRID)
 
-
 opm_add_test(ebos_alugrid
 	ONLY_COMPILE
 	ALWAYS_ENABLE
