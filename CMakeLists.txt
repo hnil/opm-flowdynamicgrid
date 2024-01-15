@@ -96,8 +96,7 @@ macro (config_hook)
 	opm_need_version_of ("opm-models")
 	opm_need_version_of ("opm-simulators")
 	if(NOT fmt_FOUND)
-		add_definitions(-DFMT_HEADER_ONLY)
-		list(APPEND EXTRA_INCLUDES SYSTEM ${PROJECT_SOURCE_DIR}/external/fmtlib/include)
+    include(DownloadFmt)
 	endif()
 	include_directories(${EXTRA_INCLUDES})
 
@@ -132,7 +131,9 @@ endmacro (tests_hook)
 include (OpmLibMain)
 
 include(OpmBashCompletion)
-
+  if(TARGET fmt::fmt)
+    target_link_libraries(flow_lib${OBJ} fmt::fmt)
+  endif()
 add_library(moduleVersionExp OBJECT opm/simulators/utils/moduleVersion.cpp)
 set_property(TARGET moduleVersionExp PROPERTY POSITION_INDEPENDENT_CODE ON)
 

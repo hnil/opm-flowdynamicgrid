@@ -801,7 +801,7 @@ public:
                               simulator.vanguard().cellCentroids(),
                               enableEnergy,
                               enableDiffusion,
-                              enableDispersion,
+                              enableDispersion)
         , thresholdPressures_(simulator)
         , wellModel_(simulator)
         , aquiferModel_(simulator)
@@ -2472,26 +2472,6 @@ RestrictProlongOperator restrictProlongOperator()
     }
 
     /*!
-     * \brief Calculate the transmissibility multiplier due to porosity reduction.
-     *
-     * TODO: The API of this is a bit ad-hoc, it would be better to use context objects.
-     */
-    template <class LhsEval>
-    LhsEval permFactTransMultiplier(const IntensiveQuantities& intQuants) const
-    {
-        OPM_TIMEBLOCK_LOCAL(permFactTransMultiplier);
-        if (!enableSaltPrecipitation)
-            return 1.0;
-        
-        const auto& fs = intQuants.fluidState();
-        unsigned tableIdx = fs.pvtRegionIndex();
-        LhsEval porosityFactor = decay<LhsEval>(1. - fs.saltSaturation());
-        porosityFactor = min(porosityFactor, 1.0);
-        const auto& permfactTable = BrineModule::permfactTable(tableIdx);
-        return permfactTable.eval(porosityFactor, /*extrapolation=*/true);
-    }
-
-    /*!
      * \brief Calculate the transmissibility multiplier due to water induced rock compaction.
      *
      * TODO: The API of this is a bit ad-hoc, it would be better to use context objects.
@@ -2528,6 +2508,39 @@ RestrictProlongOperator restrictProlongOperator()
         LhsEval SwDeltaMax = SwMax - initialFluidStates_[elementIdx].saturation(waterPhaseIdx);
 
         return this->rockCompTransMultWc_[tableIdx].eval(effectiveOilPressure, SwDeltaMax, /*extrapolation=*/true);
+    }
+        /*!
+     * \brief Calculate the transmissibility multiplier due to porosity reduction.
+     *
+     * TODO: The API of this is a bit ad-hoc, it would be better to use context objects.
+     */
+    template <class LhsEval>
+    LhsEval permFactTransMultiplier(const IntensiveQuantities& intQuants) const
+    {
+        OPM_TIMEBLOCK_LOCAL(permFactTransMultiplier);
+        if (!enableSaltPrecipitation)
+            return 1.0;
+        
+        const auto& fs = intQuants.fluidState();
+        unsigned tableIdx = fs.pvtRegionIndex();
+        LhsEval porosityFactor = decay<LhsEval>(1. - fs.saltSaturation());
+        porosityFactor = min(porosityFactor, 1.0);
+        const auto& permfactTable = BrineModule::permfactTable(tableIdx);
+        return permfactTable.eval(porosityFactor, /*extrapolation=*/true);
+    }
+
+    /*!
+     * \brief Return the well transmissibility multiplier due to rock changues.
+     */
+    template <class LhsEval>
+    LhsEval wellTransMultiplier(const IntensiveQuantities& intQuants, unsigned elementIdx) const
+    {
+        OPM_TIMEBLOCK_LOCAL(wellTransMultiplier);
+        
+        double trans_mult = this->simulator().problem().template rockCompTransMultiplier<double>(intQuants, elementIdx);
+        trans_mult *= this->simulator().problem().template permFactTransMultiplier<double>(intQuants);
+    
+        return trans_mult;
     }
 
     std::pair<BCType, RateVector> boundaryCondition(const unsigned int globalSpaceIdx, const int directionId) const
