@@ -1142,7 +1142,7 @@ void fillContainerForGridAdaptation()
                 bool hasSamePrimaryVarsMeaning = (hasSamePrimaryVarsMeaningWater&&hasSamePrimaryVarsMeaningPressure&&hasSamePrimaryVarsMeaningGas&&hasSamePrimaryVarsMeaningBrine);
                 const Scalar indicator =
                     (maxSat - minSat);///(std::max<Scalar>(0.01, maxSat+minSat)/2);
-                if( indicator > 0.3 && elem.level() < 2 ) {
+                if( indicator > 0.0 && elem.level() < 2 ) {
                     grid.mark( 1, elem );
                     ++ numMarked;
                     ++ numMarked_refined;
@@ -2167,12 +2167,13 @@ RestrictProlongOperator restrictProlongOperator()
     {
         const unsigned globalDofIdx = context.globalSpaceIndex(spaceIdx, timeIdx);
           const auto&entity = context.stencil(timeIdx).entity(spaceIdx);
-          source(rate, container_[entity].preAdaptIndex, timeIdx);
+          source(rate,globalDofIdx, container_[entity].preAdaptIndex, timeIdx);
     }
 
 
 
     void source(RateVector& rate,
+                unsigned globalDofIdxCurrent,
                 unsigned globalDofIdx,
                 unsigned timeIdx) const
     {
@@ -2192,10 +2193,11 @@ RestrictProlongOperator restrictProlongOperator()
         }
 
         // Add non-well sources.
-        addToSourceDense(rate, globalDofIdx, timeIdx);
+        addToSourceDense(rate, globalDofIdxCurrent, globalDofIdx, timeIdx);
     }
 
     void addToSourceDense(RateVector& rate,
+                          unsigned globalDofIdxCurrent,
                           unsigned globalDofIdx,
                           unsigned timeIdx) const
     {
@@ -2209,24 +2211,24 @@ RestrictProlongOperator restrictProlongOperator()
                 this->simulator().vanguard().cartesianCoordinate(globalDofIdx, ijk);
             RateVector massRate(0.0);
             if ( FluidSystem::phaseIsActive(FluidSystem::oilPhaseIdx)) {
-                massRate[Indices::canonicalToActiveComponentIndex(oilCompIdx)] = source.rate({ijk, SourceComponent::OIL}) / this->model().dofTotalVolume(globalDofIdx);
+                massRate[Indices::canonicalToActiveComponentIndex(oilCompIdx)] = source.rate({ijk, SourceComponent::OIL}) /6.3605599999999999e-07* this->model().dofTotalVolume(globalDofIdxCurrent)/6.3605599999999999e-07;
             }
             if ( FluidSystem::phaseIsActive(FluidSystem::gasPhaseIdx)) {
-                massRate[Indices::canonicalToActiveComponentIndex(gasCompIdx)] = source.rate({ijk, SourceComponent::GAS}) / this->model().dofTotalVolume(globalDofIdx);
+                massRate[Indices::canonicalToActiveComponentIndex(gasCompIdx)] = source.rate({ijk, SourceComponent::GAS}) /6.3605599999999999e-07* this->model().dofTotalVolume(globalDofIdxCurrent)/6.3605599999999999e-07;
             }
             if ( FluidSystem::phaseIsActive(FluidSystem::waterPhaseIdx)) {
-                massRate[Indices::canonicalToActiveComponentIndex(waterCompIdx)] = source.rate({ijk, SourceComponent::WATER}) / this->model().dofTotalVolume(globalDofIdx);
+                massRate[Indices::canonicalToActiveComponentIndex(waterCompIdx)] = source.rate({ijk, SourceComponent::WATER}) /6.3605599999999999e-07* this->model().dofTotalVolume(globalDofIdxCurrent)/6.3605599999999999e-07;
             }
             if constexpr (enableSolvent) {
-                massRate[Indices::solventSaturationIdx] = source.rate({ijk, SourceComponent::SOLVENT}) / this->model().dofTotalVolume(globalDofIdx);
+                massRate[Indices::solventSaturationIdx] = source.rate({ijk, SourceComponent::SOLVENT}) /6.3605599999999999e-07* this->model().dofTotalVolume(globalDofIdxCurrent)/6.3605599999999999e-07;
             }
             const int pvtRegionIdx = this->pvtRegionIndex(globalDofIdx);
             rate.setMassRate(massRate, pvtRegionIdx);
             if constexpr (enablePolymer) {
-                rate[Indices::polymerConcentrationIdx] = source.rate({ijk, SourceComponent::POLYMER}) / this->model().dofTotalVolume(globalDofIdx);
+                rate[Indices::polymerConcentrationIdx] = source.rate({ijk, SourceComponent::POLYMER}) /6.3605599999999999e-07* this->model().dofTotalVolume(globalDofIdxCurrent)/6.3605599999999999e-07;
             }
             if constexpr (enableEnergy) {
-                rate[Indices::contiEnergyEqIdx] = source.hrate(ijk) / this->model().dofTotalVolume(globalDofIdx);
+                rate[Indices::contiEnergyEqIdx] = source.hrate(ijk) /6.3605599999999999e-07* this->model().dofTotalVolume(globalDofIdxCurrent)/6.3605599999999999e-07;
             }
         }
 
