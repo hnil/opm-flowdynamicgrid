@@ -636,7 +636,7 @@ class EclProblemDynamic : public GetPropType<TypeTag, Properties::BaseProblem>
     enum { enableTemperature = getPropValue<TypeTag, Properties::EnableTemperature>() };
     enum { enableEnergy = getPropValue<TypeTag, Properties::EnableEnergy>() };
     enum { enableDiffusion = getPropValue<TypeTag, Properties::EnableDiffusion>() };
-    enum { enableDispersion = getPropValue<TypeTag, Properties::EnableDispersion>() };    
+    enum { enableDispersion = getPropValue<TypeTag, Properties::EnableDispersion>() };
     enum { enableThermalFluxBoundaries = getPropValue<TypeTag, Properties::EnableThermalFluxBoundaries>() };
     enum { enableApiTracking = getPropValue<TypeTag, Properties::EnableApiTracking>() };
     enum { enableMICP = getPropValue<TypeTag, Properties::EnableMICP>() };
@@ -924,6 +924,12 @@ public:
         readMaterialParameters_();
         readThermalParameters_();
 
+        //NB should be done better
+        orgVolume_.resize(this->model().numGridDof());
+        for (unsigned globalDofIdx = 0; globalDofIdx < this->model().numGridDof(); globalDofIdx ++) {
+            orgVolume_[globalDofIdx] = this->model().dofTotalVolume(globalDofIdx);
+        }
+        //orgVolume_ = simulator.vanguard().cellVolume();
         // Re-ordering in case of ALUGrid
         std::function<unsigned int(unsigned int)> gridToEquilGrid = [&simulator](unsigned int i) {
             return simulator.vanguard().gridIdxToEquilGridIdx(i);
@@ -984,10 +990,13 @@ public:
             simulator.startNextEpisode(schedule.seconds(1));
             simulator.setEpisodeIndex(0);
         }
+        // probably do uniform refinement here
+
     }
 
     void gridChanged()
     {
+        OPM_TIMEBLOCK(gridChanged);
         ParentType::gridChanged();
         this->model().finishInit();
         this->simulator().vanguard().resetOrdering_();
@@ -1083,7 +1092,7 @@ void fillContainerForGridAdaptation()
         {
             const auto& elem = *elemIt;
             if (elem.partitionType() != Dune::InteriorEntity)
-               continue; 
+               continue;
             elemCtx.updateAll(elem);
             int elemIdx = elemCtx.globalSpaceIndex(/*dofIdx=*/0, /*timeIdx=*/0);
             const auto& priVars = elemCtx.primaryVars(/*spaceIdx=*/0, /*timeIdx=*/0);
@@ -1142,7 +1151,7 @@ void fillContainerForGridAdaptation()
                 bool hasSamePrimaryVarsMeaning = (hasSamePrimaryVarsMeaningWater&&hasSamePrimaryVarsMeaningPressure&&hasSamePrimaryVarsMeaningGas&&hasSamePrimaryVarsMeaningBrine);
                 const Scalar indicator =
                     (maxSat - minSat);///(std::max<Scalar>(0.01, maxSat+minSat)/2);
-                if( indicator > 0.0 && elem.level() < 2 ) {
+                if( indicator > 0.3 && elem.level() < 3 ) {
                     grid.mark( 1, elem );
                     ++ numMarked;
                     ++ numMarked_refined;
@@ -1462,15 +1471,15 @@ RestrictProlongOperator restrictProlongOperator()
         }
 
         bool isSubStep = !EWOMS_GET_PARAM(TypeTag, bool, EnableWriteAllSolutions) && !this->simulator().episodeWillBeOver();
-        
+
         data::Solution localCellData = {};
 #if HAVE_DAMARIS
-        // N.B. the Damaris output has to be done before the ECL output as the ECL one 
+        // N.B. the Damaris output has to be done before the ECL output as the ECL one
         // does all kinds of std::move() relocation of data
         if (enableDamarisOutput_) {
             damarisWriter_->writeOutput(localCellData, isSubStep) ;
         }
-#endif 
+#endif
         if (enableEclOutput_){
             eclWriter_->writeOutput(std::move(localCellData), timer, isSubStep);
         }
@@ -1744,19 +1753,21 @@ RestrictProlongOperator restrictProlongOperator()
                                                unsigned spaceIdx, unsigned timeIdx) const
     {
         const auto&entity = context.stencil(timeIdx).entity(spaceIdx);
-        unsigned globalSpaceIdx = context.globalSpaceIndex(spaceIdx, timeIdx);
+        //unsigned globalSpaceIdx = context.globalSpaceIndex(spaceIdx, timeIdx);
         return this->materialLawParams(container_[entity].preAdaptIndex);
     }
 
     const MaterialLawParams& materialLawParams(unsigned globalDofIdx) const
     {
        // materialLawManager_->materialLawParams(globalDofIdx).definalize();
-        return materialLawManager_->materialLawParams(globalDofIdx);
+        unsigned preAdaptGlobalIdx = postAdaptGridIndex_[globalDofIdx];
+        return materialLawManager_->materialLawParams(preAdaptGlobalIdx);
     }
 
     const MaterialLawParams& materialLawParams(unsigned globalDofIdx, FaceDir::DirEnum facedir) const
     {
-        return materialLawManager_->materialLawParams(globalDofIdx, facedir);
+        unsigned preAdaptGlobalIdx = postAdaptGridIndex_[globalDofIdx];
+        return materialLawManager_->materialLawParams(preAdaptGlobalIdx, facedir);
     }
 
     template <class Context>
@@ -1764,7 +1775,7 @@ RestrictProlongOperator restrictProlongOperator()
                                                unsigned spaceIdx, unsigned timeIdx, FaceDir::DirEnum facedir) const
     {
         const auto&entity = context.stencil(timeIdx).entity(spaceIdx);
-        unsigned globalSpaceIdx = context.globalSpaceIndex(spaceIdx, timeIdx);
+        //unsigned globalSpaceIdx = context.globalSpaceIndex(spaceIdx, timeIdx);
         return materialLawManager_->materialLawParams(container_[entity].preAdaptIndex, facedir);
     }
 
@@ -2211,24 +2222,24 @@ RestrictProlongOperator restrictProlongOperator()
                 this->simulator().vanguard().cartesianCoordinate(globalDofIdx, ijk);
             RateVector massRate(0.0);
             if ( FluidSystem::phaseIsActive(FluidSystem::oilPhaseIdx)) {
-                massRate[Indices::canonicalToActiveComponentIndex(oilCompIdx)] = source.rate({ijk, SourceComponent::OIL}) /6.3605599999999999e-07* this->model().dofTotalVolume(globalDofIdxCurrent)/6.3605599999999999e-07;
+                massRate[Indices::canonicalToActiveComponentIndex(oilCompIdx)] = source.rate({ijk, SourceComponent::OIL}) / this->dofTotalVolumeOrg(globalDofIdx);
             }
             if ( FluidSystem::phaseIsActive(FluidSystem::gasPhaseIdx)) {
-                massRate[Indices::canonicalToActiveComponentIndex(gasCompIdx)] = source.rate({ijk, SourceComponent::GAS}) /6.3605599999999999e-07* this->model().dofTotalVolume(globalDofIdxCurrent)/6.3605599999999999e-07;
+                massRate[Indices::canonicalToActiveComponentIndex(gasCompIdx)] = source.rate({ijk, SourceComponent::GAS}) / this->dofTotalVolumeOrg(globalDofIdx);
             }
             if ( FluidSystem::phaseIsActive(FluidSystem::waterPhaseIdx)) {
-                massRate[Indices::canonicalToActiveComponentIndex(waterCompIdx)] = source.rate({ijk, SourceComponent::WATER}) /6.3605599999999999e-07* this->model().dofTotalVolume(globalDofIdxCurrent)/6.3605599999999999e-07;
+                massRate[Indices::canonicalToActiveComponentIndex(waterCompIdx)] = source.rate({ijk, SourceComponent::WATER}) / this->dofTotalVolumeOrg(globalDofIdx);
             }
             if constexpr (enableSolvent) {
-                massRate[Indices::solventSaturationIdx] = source.rate({ijk, SourceComponent::SOLVENT}) /6.3605599999999999e-07* this->model().dofTotalVolume(globalDofIdxCurrent)/6.3605599999999999e-07;
+                massRate[Indices::solventSaturationIdx] = source.rate({ijk, SourceComponent::SOLVENT}) / this->dofTotalVolumeOrg(globalDofIdx);
             }
             const int pvtRegionIdx = this->pvtRegionIndex(globalDofIdx);
             rate.setMassRate(massRate, pvtRegionIdx);
             if constexpr (enablePolymer) {
-                rate[Indices::polymerConcentrationIdx] = source.rate({ijk, SourceComponent::POLYMER}) /6.3605599999999999e-07* this->model().dofTotalVolume(globalDofIdxCurrent)/6.3605599999999999e-07;
+                rate[Indices::polymerConcentrationIdx] = source.rate({ijk, SourceComponent::POLYMER}) / this->dofTotalVolumeOrg(globalDofIdx);
             }
             if constexpr (enableEnergy) {
-                rate[Indices::contiEnergyEqIdx] = source.hrate(ijk) /6.3605599999999999e-07* this->model().dofTotalVolume(globalDofIdxCurrent)/6.3605599999999999e-07;
+                rate[Indices::contiEnergyEqIdx] = source.hrate(ijk) / this->dofTotalVolumeOrg(globalDofIdx);
             }
         }
 
@@ -2371,7 +2382,7 @@ RestrictProlongOperator restrictProlongOperator()
                         //single (water) phase
                         fluidState.setPressure(phaseIdx, pressure);
                 }
-                
+
                 double temperature = initialFluidStates_[globalDofIdx].temperature(phaseIndex);
                 const auto temperature_input = bc.temperature;
                 if(temperature_input)
@@ -2522,7 +2533,7 @@ RestrictProlongOperator restrictProlongOperator()
         OPM_TIMEBLOCK_LOCAL(permFactTransMultiplier);
         if (!enableSaltPrecipitation)
             return 1.0;
-        
+
         const auto& fs = intQuants.fluidState();
         unsigned tableIdx = fs.pvtRegionIndex();
         LhsEval porosityFactor = decay<LhsEval>(1. - fs.saltSaturation());
@@ -2538,10 +2549,10 @@ RestrictProlongOperator restrictProlongOperator()
     LhsEval wellTransMultiplier(const IntensiveQuantities& intQuants, unsigned elementIdx) const
     {
         OPM_TIMEBLOCK_LOCAL(wellTransMultiplier);
-        
+
         double trans_mult = this->simulator().problem().template rockCompTransMultiplier<double>(intQuants, elementIdx);
         trans_mult *= this->simulator().problem().template permFactTransMultiplier<double>(intQuants);
-    
+
         return trans_mult;
     }
 
@@ -2833,7 +2844,7 @@ protected:
 
         // directional relative permeabilities
         this->updateKrnum_();
-        OPM_END_PARALLEL_TRY_CATCH("Invalid region numbers: ", vanguard.gridView().comm()); 
+        OPM_END_PARALLEL_TRY_CATCH("Invalid region numbers: ", vanguard.gridView().comm());
         ////////////////////////////////
         // porosity
         updateReferencePorosity_();
@@ -3514,7 +3525,7 @@ private:
                std::vector<int> adaptcartesianToCompressedElemIdx(numElems, -1);
                for (unsigned elemIdx = 0; elemIdx < numElems; ++elemIdx)
                     adaptcartesianToCompressedElemIdx[elemIdx] = vanguard.cartesianIndex(postAdaptGridIndex_[elemIdx]);
-                       
+
                adbcindex_.resize(numElems, 0);
 
                for (const auto& bcface : bcconfig) {
@@ -3524,7 +3535,7 @@ private:
                        for (unsigned elemIdx = 0; elemIdx < numElems; ++elemIdx)
                            adbcindex_.data[i][elemIdx] = simulator.problem().bcindex_.data[i][adaptcartesianToCompressedElemIdx[elemIdx]];
                    }
-               }   
+               }
                bcindex_.resize(numElems,0);
                const auto& bcindex_=adbcindex_;
             }
@@ -3711,7 +3722,7 @@ private:
 #if HAVE_DAMARIS
     bool enableDamarisOutput_ = false ;
     std::unique_ptr<DamarisWriterType> damarisWriter_;
-#endif 
+#endif
 
     PffGridVector<GridView, Stencil, PffDofData_, DofMapper> pffDofData_;
     TracerModel tracerModel_;
@@ -3783,11 +3794,15 @@ private:
     SRCData<int> adsrcindex_;
     bool nonTrivialBoundaryConditions_ = false;
     bool nonWellsSourceTerms_ = false;
+    double dofTotalVolumeOrg(int globalDofIdxOrg) const{
+        return orgVolume_[globalDofIdxOrg];
+    }
 public:
     GlobalContainer container_;
     std::vector<int> preAdaptGridIndex_;
     std::vector<int> postAdaptGridIndex_;
     std::vector<unsigned int> ordering_;
+    std::vector<double> orgVolume_;
 };
 
 } // namespace Opm
