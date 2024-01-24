@@ -96,7 +96,7 @@ macro (config_hook)
 	opm_need_version_of ("opm-models")
 	opm_need_version_of ("opm-simulators")
 	if(NOT fmt_FOUND)
-    include(DownloadFmt)
+		include(DownloadFmt)
 	endif()
 	include_directories(${EXTRA_INCLUDES})
 
@@ -131,9 +131,9 @@ endmacro (tests_hook)
 include (OpmLibMain)
 
 include(OpmBashCompletion)
-  if(TARGET fmt::fmt)
-    target_link_libraries(flow_lib${OBJ} fmt::fmt)
-  endif()
+#  if(TARGET fmt::fmt)
+#    target_link_libraries(flow_lib${OBJ} fmt::fmt)
+#  endif()
 add_library(moduleVersionExp OBJECT opm/simulators/utils/moduleVersion.cpp)
 set_property(TARGET moduleVersionExp PROPERTY POSITION_INDEPENDENT_CODE ON)
 
@@ -158,6 +158,11 @@ opm_add_test(flow_blackoil_alugrid_exp
 	$<TARGET_OBJECTS:moduleVersionExp>)
 target_compile_definitions(flow_blackoil_alugrid_exp PRIVATE USE_ALUGRID)
 
+if(USE_TRACY)
+	target_link_libraries(flow_blackoil_alugrid_exp Tracy::TracyClient)
+endif()
+
+
 opm_add_test(flow_oilgas_alugrid_exp
 	ONLY_COMPILE
 	ALWAYS_ENABLE
@@ -167,6 +172,24 @@ opm_add_test(flow_oilgas_alugrid_exp
 	tests/flow_oilgas_alugrid_exp.cpp
 	$<TARGET_OBJECTS:moduleVersionExp>)
 target_compile_definitions(flow_oilgas_alugrid_exp PRIVATE USE_ALUGRID)
+
+if(USE_TRACY)
+	target_link_libraries(flow_oilgas_alugrid_exp Tracy::TracyClient)
+endif()
+
+opm_add_test(flow_gaswater_alugrid_exp
+	ONLY_COMPILE
+	ALWAYS_ENABLE
+	DEPENDS opmsimulators
+	LIBRARIES opmsimulators
+	SOURCES
+	tests/flow_gaswater_alugrid_exp.cpp
+	$<TARGET_OBJECTS:moduleVersionExp>)
+target_compile_definitions(flow_gaswater_alugrid_exp PRIVATE USE_ALUGRID)
+
+if(USE_TRACY)
+	target_link_libraries(flow_gaswater_alugrid_exp Tracy::TracyClient)
+endif()
 
 opm_add_test(ebos_alugrid
 	ONLY_COMPILE

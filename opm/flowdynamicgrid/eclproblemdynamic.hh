@@ -764,6 +764,11 @@ public:
         EWOMS_REGISTER_PARAM(TypeTag, int, NumPressurePointsEquil,
                              "Number of pressure points (in each direction) in tables used for equilibration");
         EWOMS_HIDE_PARAM(TypeTag, NumPressurePointsEquil); // Users will typically not need to modify this parameter..
+        EWOMS_REGISTER_PARAM(TypeTag, unsigned, GridGlobalRefinements,
+                             "The number of global refinements of the grid "
+                             "executed after it was loaded");
+
+
     }
 
 
@@ -925,9 +930,11 @@ public:
         readThermalParameters_();
 
         //NB should be done better
-        orgVolume_.resize(this->model().numGridDof());
-        for (unsigned globalDofIdx = 0; globalDofIdx < this->model().numGridDof(); globalDofIdx ++) {
-            orgVolume_[globalDofIdx] = this->model().dofTotalVolume(globalDofIdx);
+        if(!(orgVolume_.size()>0)){
+            orgVolume_.resize(this->model().numGridDof());
+            for (unsigned globalDofIdx = 0; globalDofIdx < this->model().numGridDof(); globalDofIdx ++) {
+                orgVolume_[globalDofIdx] = this->model().dofTotalVolume(globalDofIdx);
+            }
         }
         //orgVolume_ = simulator.vanguard().cellVolume();
         // Re-ordering in case of ALUGrid
@@ -991,6 +998,43 @@ public:
             simulator.setEpisodeIndex(0);
         }
         // probably do uniform refinement here
+        refinedGlobal_=0;
+
+    }
+    void refineGlobal(){
+        unsigned numRefinments = EWOMS_GET_PARAM(TypeTag, unsigned, GridGlobalRefinements);
+        auto& grid = this->simulator().vanguard().grid();
+        while (numRefinments > refinedGlobal_) {
+            //grid.globalRefine(static_cast<int>(numRefinments));
+            // simulator.vanguard().loadBalance();
+            const auto& vanguard = this->simulator().vanguard();
+            const auto& gridView = vanguard.gridView();
+            auto& grid = this->simulator().vanguard().grid();
+            auto& sol = this->model().solution(/*timeIdx=*/0);
+            auto elemIt = gridView.template begin</*codim=*/0, Dune::Interior_Partition>();
+            auto elemEndIt = gridView.template end</*codim=*/0, Dune::Interior_Partition>();
+            ElementContext elemCtx( this->simulator() );
+            for (; elemIt != elemEndIt; ++elemIt)
+            {
+                const auto& elem = *elemIt;
+                if (elem.partitionType() != Dune::InteriorEntity)
+                    continue;
+
+                elemCtx.updateAll(elem);
+                int elemIdx = elemCtx.globalSpaceIndex(/*dofIdx=*/0, /*timeIdx=*/0);
+                const auto& priVars = elemCtx.primaryVars(/*spaceIdx=*/0, /*timeIdx=*/0);
+                container_[elem].wm = sol[elemIdx].primaryVarsMeaningWater();
+                container_[elem].pm = sol[elemIdx].primaryVarsMeaningPressure();
+                container_[elem].gm = sol[elemIdx].primaryVarsMeaningGas();
+                container_[elem].bm = sol[elemIdx].primaryVarsMeaningBrine();
+
+                grid.mark( 1, elem );
+            }
+            this->simulator().model().adaptMarkedGrid();
+            // simulator.model().adaptManager().adapt()
+            this->gridChanged();
+            refinedGlobal_ += 1;
+        }
 
     }
 
@@ -1173,7 +1217,7 @@ void fillContainerForGridAdaptation()
             }
         }
         std::cout << "Num coarsened cell " << numMarked_coarsen << std::endl;
-        std::cout << "Num refined cell" << numMarked_refined << std::endl;
+        std::cout << "Num refined cell " << numMarked_refined << std::endl;
         std::cout << "Num marked" << numMarked << std::endl;
         // get global sum so that every proc is on the same page
         numMarked = this->simulator().vanguard().grid().comm().sum( numMarked );
@@ -2163,6 +2207,8 @@ RestrictProlongOperator restrictProlongOperator()
         if (this->simulator().episodeIndex() == 0) {
             eclWriter_->writeInitialFIPReport();
         }
+        this->fillContainerForGridAdaptation();
+        this->refineGlobal();
     }
 
     /*!
@@ -2904,7 +2950,7 @@ protected:
             // Opm::EnsureFinalized();
             // mlp.finalize();
             // materialLawParams.emplace_back(mlp);
-            is_cell_Perf.push_back(wellModel_.is_cell_perforated_[container_[*it].preAdaptIndex]);
+            //is_cell_Perf.push_back(wellModel_.is_cell_perforated_[container_[*it].preAdaptIndex]);
             pvt_region_idx.emplace_back(container_[*it].pvtRegionIdx);
         }
         is_cell_Perf.resize(gridView.indexSet().size(0));
@@ -3803,6 +3849,7 @@ public:
     std::vector<int> postAdaptGridIndex_;
     std::vector<unsigned int> ordering_;
     std::vector<double> orgVolume_;
+    int refinedGlobal_;
 };
 
 } // namespace Opm

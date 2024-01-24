@@ -32,6 +32,7 @@
 #include <opm/models/blackoil/blackoillocalresidualtpfa.hh>
 #include <opm/models/discretization/common/fvbaselinearizer.hh>
 #include <opm/models/discretization/common/fvbaseintensivequantities.hh>
+#include <opm/flowdynamicgrid/blackoilintensivequantitiesdynamic.hh>
 // these are not explicitly instanced in library
 #include <ebos/collecttoiorank_impl.hh>
 #include <ebos/eclgenericproblem_impl.hh>
@@ -49,6 +50,7 @@ namespace Opm{
         using ParentType = GetPropType<TypeTag, Properties::BaseProblem>;
         using Simulator = GetPropType<TypeTag, Properties::Simulator>;
         using Evaluation = GetPropType<TypeTag, Properties::Evaluation>;
+        using IntensiveQuantities = GetPropType<TypeTag, Properties::IntensiveQuantities>;
         using Indices = GetPropType<TypeTag, Properties::Indices>;
         static constexpr bool waterEnabled = Indices::waterEnabled;
         static constexpr bool gasEnabled = Indices::gasEnabled;
@@ -244,6 +246,10 @@ struct EclFlowProblemAlugrid {
         using type = EclProblemDynamic<TypeTag>;
     };
     template<class TypeTag>
+    struct IntensiveQuantities<TypeTag, TTag::EclFlowProblemAlugrid> {
+    using type = BlackOilIntensiveQuantitiesDynamic<TypeTag>;
+    };
+    template<class TypeTag>
     struct Vanguard<TypeTag, TTag::EclFlowProblemAlugrid> {
         using type = Opm::EclAluGridVanguard<TypeTag>;
     };
@@ -251,14 +257,14 @@ template<class TypeTag>
 struct EclEnableAquifers<TypeTag, TTag::EclFlowProblemAlugrid> {
     static constexpr bool value = false;
 };
+//template<class TypeTag>
+ //   struct IntensiveQuantities<TypeTag, TTag::EclFlowProblemAlugrid> {
+//    using type = BlackOilIntensiveQuantitiesSimple<TypeTag>;
+//    };
 
 
-    //template<class TypeTag>
+  //  template<class TypeTag>
  //   struct LocalResidual<TypeTag, TTag::EclFlowProblemTest> { using type = BlackOilLocalResidualTPFA<TypeTag>; };
-    //template<class TypeTag>
-    //struct IntensiveQuantities<TypeTag, TTag::EclFlowProblemTest> {
-    //using type = BlackOilIntensiveQuantitiesSimple<TypeTag>;
-    //};
 // use automatic differentiation for this simulator
 template<class TypeTag>
 struct LocalLinearizerSplice<TypeTag, TTag::EclFlowProblemAlugrid> { using type = TTag::AutoDiffLocalLinearizer; };
