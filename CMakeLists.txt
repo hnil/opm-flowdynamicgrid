@@ -191,6 +191,21 @@ if(USE_TRACY)
 	target_link_libraries(flow_gaswater_alugrid_exp Tracy::TracyClient)
 endif()
 
+
+opm_add_test(flow_gaswater_alugrid
+	ONLY_COMPILE
+	ALWAYS_ENABLE
+	DEPENDS opmsimulators
+	LIBRARIES opmsimulators
+	SOURCES
+	tests/flow_gaswater_alugrid.cpp
+	$<TARGET_OBJECTS:moduleVersionExp>)
+target_compile_definitions(flow_gaswater_alugrid PRIVATE USE_ALUGRID)
+
+if(USE_TRACY)
+	target_link_libraries(flow_gaswater_alugrid Tracy::TracyClient)
+endif()
+
 opm_add_test(ebos_alugrid
 	ONLY_COMPILE
 	ALWAYS_ENABLE

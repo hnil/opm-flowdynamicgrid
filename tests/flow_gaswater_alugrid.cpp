@@ -30,9 +30,9 @@
 #include <opm/flowdynamicgrid/eclproblemdynamic.hh>
 #include <opm/models/discretization/common/fvbasegradientcalculator.hh>
 #include <opm/models/blackoil/blackoillocalresidualtpfa.hh>
+#include <opm/models/blackoil/blackoilintensivequantities.hh>
 #include <opm/models/discretization/common/fvbaselinearizer.hh>
 #include <opm/models/discretization/common/fvbaseintensivequantities.hh>
-#include <opm/flowdynamicgrid/blackoilintensivequantitiesdynamic.hh>
 // these are not explicitly instanced in library
 #include <ebos/collecttoiorank_impl.hh>
 #include <ebos/eclgenericproblem_impl.hh>
@@ -42,41 +42,10 @@
 #include <ebos/eclgenericwriter_impl.hh>
 #include <ebos/equil/initstateequil_impl.hh>
 #include <opm/models/discretization/common/fvbasediscretizationfemadapt.hh>
+#include <opm/flowdynamicgrid/blackoilintensivequantitiesdynamic.hh>
 //#include <opm/material/fluidmatrixinteractions/EclMaterialLawManagerTable.hpp>
 namespace Opm{
-    template<typename TypeTag>
-    class EclProblemNew: public EclProblem<TypeTag>{
-        using Parent = EclProblem<TypeTag>;
-        using ParentType = GetPropType<TypeTag, Properties::BaseProblem>;
-        using Simulator = GetPropType<TypeTag, Properties::Simulator>;
-        using Evaluation = GetPropType<TypeTag, Properties::Evaluation>;
-        using Indices = GetPropType<TypeTag, Properties::Indices>;
-        static constexpr bool waterEnabled = Indices::waterEnabled;
-        static constexpr bool gasEnabled = Indices::gasEnabled;
-        static constexpr bool oilEnabled = Indices::oilEnabled;
-        using DirectionalMobilityPtr = ::Opm::Utility::CopyablePtr<DirectionalMobility<TypeTag, Evaluation>>;
-        using MaterialLaw = GetPropType<TypeTag, Properties::MaterialLaw>;
-        using FluidSystem = GetPropType<TypeTag, Properties::FluidSystem>;
-        using PrimaryVariables = GetPropType<TypeTag, Properties::PrimaryVariables>;
-        using Grid = GetPropType<TypeTag, Properties::Grid>;
-        using EquilGrid = GetPropType<TypeTag, Properties::EquilGrid>;
-        using CartesianIndexMapper = Dune::CartesianIndexMapper<Grid>;
-        enum { numPhases = FluidSystem::numPhases };
-public:
-        EclProblemNew(Simulator& simulator): EclProblem<TypeTag>(simulator){
-        }
-        //template <class Context, class FluidState>
-       //void updateRelperms( const Context& context,
-      //      std::array<Evaluation,numPhases> &mobility,
-      //      DirectionalMobilityPtr &dirMob,
-     //       FluidState &fluidState,
-     //       unsigned dofIdx, unsigned timeIdx) const
-     //   {
-     //       OPM_TIMEBLOCK_LOCAL(updateRelperms);
-     //       Parent::updateRelperms(context, mobility, dirMob, fluidState, dofIdx, timeIdx);
-     //   };
-    };
-       template<typename TypeTag>
+template<typename TypeTag>
     class BlackOilModelDynamic: public FIBlackOilModel<TypeTag>{
         using Parent = BlackOilModel<TypeTag>;
         using GridView = GetPropType<TypeTag, Properties::GridView>;
@@ -224,7 +193,8 @@ struct EclFlowProblemAlugrid {
  };
     template<class TypeTag>
     struct Model<TypeTag, TTag::EclFlowProblemAlugrid> {
-         using type = BlackOilModelDynamic<TypeTag>;
+        // using type = BlackOilModelDynamic<TypeTag>;
+        using type = FIBlackOilModel<TypeTag>;
     };
     template<class TypeTag>
     struct SpatialDiscretizationSplice<TypeTag, TTag::EclFlowProblemAlugrid> {
@@ -246,7 +216,8 @@ struct EclFlowProblemAlugrid {
     };
     template<class TypeTag>
     struct IntensiveQuantities<TypeTag, TTag::EclFlowProblemAlugrid> {
-        using type = BlackOilIntensiveQuantitiesDynamic<TypeTag>;
+        //using type = BlackOilIntensiveQuantitiesDynamic<TypeTag>;
+        using type = BlackOilIntensiveQuantities<TypeTag>;
     };
     template<class TypeTag>
     struct Vanguard<TypeTag, TTag::EclFlowProblemAlugrid> {
@@ -279,17 +250,17 @@ struct EnableStorageCache<TypeTag, TTag::EclFlowProblemAlugrid> { static constex
 template<class TypeTag>
 struct EnableIntensiveQuantityCache<TypeTag, TTag::EclFlowProblemAlugrid> { static constexpr bool value = true; };
 // this problem works fine if the linear solver uses single precision scalars
-template<class TypeTag>
-struct LinearSolverScalar<TypeTag, TTag::EclFlowProblemAlugrid> { using type = float; };
-template <class TypeTag>
-struct FluxModule<TypeTag, TTag::EclFlowProblemAlugrid> {
-    using type = TransFluxModule<TypeTag>;
-};
+// template<class TypeTag>
+// struct LinearSolverScalar<TypeTag, TTag::EclFlowProblemAlugrid> { using type = float; };
+// template <class TypeTag>
+// struct FluxModule<TypeTag, TTag::EclFlowProblemAlugrid> {
+//     using type = TransFluxModule<TypeTag>;
+// };
 
-template<class TypeTag>
-struct GradientCalculator<TypeTag, TTag::EclFlowProblemAlugrid> {
-    using type = FvBaseGradientCalculator<TypeTag>;
-};
+// template<class TypeTag>
+// struct GradientCalculator<TypeTag, TTag::EclFlowProblemAlugrid> {
+//     using type = FvBaseGradientCalculator<TypeTag>;
+// };
 
 template<class TypeTag>
 struct BaseDiscretizationType<TypeTag,TTag::EclFlowProblemAlugrid> {
