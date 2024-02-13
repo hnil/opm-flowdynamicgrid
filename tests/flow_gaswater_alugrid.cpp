@@ -43,241 +43,378 @@
 #include <ebos/equil/initstateequil_impl.hh>
 #include <opm/models/discretization/common/fvbasediscretizationfemadapt.hh>
 #include <opm/flowdynamicgrid/blackoilintensivequantitiesdynamic.hh>
+#include <opm/models/blackoil/blackoillocalresidualtpfa.hh>
+#include <opm/models/discretization/common/tpfalinearizer.hh>
 //#include <opm/material/fluidmatrixinteractions/EclMaterialLawManagerTable.hpp>
-namespace Opm{
-template<typename TypeTag>
-    class BlackOilModelDynamic: public FIBlackOilModel<TypeTag>{
-        using Parent = BlackOilModel<TypeTag>;
-        using GridView = GetPropType<TypeTag, Properties::GridView>;
-        using Element = typename GridView::template Codim<0>::Entity;
-        using ElementContext = GetPropType<TypeTag, Properties::ElementContext>;
-        using ParentType = GetPropType<TypeTag, Properties::DiscIntensiveQuantities>;
-        using ElementIterator = typename GridView::template Codim<0>::Iterator;
-        using Simulator = GetPropType<TypeTag, Properties::Simulator>;
-        using FluidSystem = GetPropType<TypeTag, Properties::FluidSystem>;
-        using IntensiveQuantities = GetPropType<TypeTag, Properties::IntensiveQuantities>;
+// namespace Opm{
+// template<typename TypeTag>
+//     class BlackOilModelDynamic: public FIBlackOilModel<TypeTag>{
+//         using Parent = BlackOilModel<TypeTag>;
+//         using GridView = GetPropType<TypeTag, Properties::GridView>;
+//         using Element = typename GridView::template Codim<0>::Entity;
+//         using ElementContext = GetPropType<TypeTag, Properties::ElementContext>;
+//         using ParentType = GetPropType<TypeTag, Properties::DiscIntensiveQuantities>;
+//         using ElementIterator = typename GridView::template Codim<0>::Iterator;
+//         using Simulator = GetPropType<TypeTag, Properties::Simulator>;
+//         using FluidSystem = GetPropType<TypeTag, Properties::FluidSystem>;
+//         using IntensiveQuantities = GetPropType<TypeTag, Properties::IntensiveQuantities>;
 
-        using Indices = GetPropType<TypeTag, Properties::Indices>;
-        using Scalar = GetPropType<TypeTag, Properties::Scalar>;
-        static constexpr int numEq = Indices::numEq;
-        using VectorBlockType = Dune::FieldVector<Scalar, numEq>;
-        using BVector = Dune::BlockVector<VectorBlockType>;
-        using SolutionVector = GetPropType<TypeTag, Properties::SolutionVector>;
-        enum {
-        historySize = getPropValue<TypeTag, Properties::TimeDiscHistorySize>(),
-        };
-    public:
-        BlackOilModelDynamic(Simulator& simulator): FIBlackOilModel<TypeTag>(simulator){
-        }
- //   void invalidateAndUpdateIntensiveQuantities(unsigned timeIdx) const
-//    {
-//       OPM_TIMEBLOCK_LOCAL(invalidateAndUpdateIntensiveQuantities);
-//       Parent::invalidateIntensiveQuantitiesCache(timeIdx);
-//    }
-// Overwriting that function to avoid throwing error when having dune-fem
+//         using Indices = GetPropType<TypeTag, Properties::Indices>;
+//         using Scalar = GetPropType<TypeTag, Properties::Scalar>;
+//         static constexpr int numEq = Indices::numEq;
+//         using VectorBlockType = Dune::FieldVector<Scalar, numEq>;
+//         using BVector = Dune::BlockVector<VectorBlockType>;
+//         using SolutionVector = GetPropType<TypeTag, Properties::SolutionVector>;
+//         enum {
+//         historySize = getPropValue<TypeTag, Properties::TimeDiscHistorySize>(),
+//         };
+//     public:
+//         BlackOilModelDynamic(Simulator& simulator): FIBlackOilModel<TypeTag>(simulator){
+//         }
+//  //   void invalidateAndUpdateIntensiveQuantities(unsigned timeIdx) const
+// //    {
+// //       OPM_TIMEBLOCK_LOCAL(invalidateAndUpdateIntensiveQuantities);
+// //       Parent::invalidateIntensiveQuantitiesCache(timeIdx);
+// //    }
+// // Overwriting that function to avoid throwing error when having dune-fem
 
-    void updateCartesianToCompressedMapping_()
-    {
-        OPM_TIMEBLOCK_LOCAL(updateCartesianToCompressedMapping_);
-        std::size_t num_cells = this->asImp_().grid().leafGridView().size(0);
-        this->is_interior_.resize(num_cells);
+//     void updateCartesianToCompressedMapping_()
+//     {
+//         OPM_TIMEBLOCK_LOCAL(updateCartesianToCompressedMapping_);
+//         std::size_t num_cells = this->asImp_().grid().leafGridView().size(0);
+//         this->is_interior_.resize(num_cells);
 
-        Opm::Properties::ElementMapper elemMapper(this->gridView(), Dune::mcmgElementLayout());
-        for (const auto& element : elements(this->gridView()))
-        {
-            const auto elemIdx = elemMapper.index(element);
-            unsigned cartesianCellIdx = this->cartesianIndex(elemIdx);
-            this->cartesianToCompressed_[cartesianCellIdx] = elemIdx;
-            if (element.partitionType() == Dune::InteriorEntity)
-            {
-                this->is_interior_[elemIdx] = 1;
-            }
-            else
-            {
-                this->is_interior_[elemIdx] = 0;
-            }
-        }
-    }
-      void addAuxiliaryModule(BaseAuxiliaryModule<TypeTag>* auxMod)
-    {
-        OPM_TIMEBLOCK_LOCAL(addAuxiliaryModule);
-        auxMod->setDofOffset(this->numTotalDof());
-        this->auxEqModules_.push_back(auxMod);
+//         Opm::Properties::ElementMapper elemMapper(this->gridView(), Dune::mcmgElementLayout());
+//         for (const auto& element : elements(this->gridView()))
+//         {
+//             const auto elemIdx = elemMapper.index(element);
+//             unsigned cartesianCellIdx = this->cartesianIndex(elemIdx);
+//             this->cartesianToCompressed_[cartesianCellIdx] = elemIdx;
+//             if (element.partitionType() == Dune::InteriorEntity)
+//             {
+//                 this->is_interior_[elemIdx] = 1;
+//             }
+//             else
+//             {
+//                 this->is_interior_[elemIdx] = 0;
+//             }
+//         }
+//     }
+//       void addAuxiliaryModule(BaseAuxiliaryModule<TypeTag>* auxMod)
+//     {
+//         OPM_TIMEBLOCK_LOCAL(addAuxiliaryModule);
+//         auxMod->setDofOffset(this->numTotalDof());
+//         this->auxEqModules_.push_back(auxMod);
 
 
-        size_t numDof = this->numTotalDof();
-        for (unsigned timeIdx = 0; timeIdx < this->historySize; ++timeIdx)
-            this->solution(timeIdx).resize(numDof);
+//         size_t numDof = this->numTotalDof();
+//         for (unsigned timeIdx = 0; timeIdx < this->historySize; ++timeIdx)
+//             this->solution(timeIdx).resize(numDof);
 
-        auxMod->applyInitial();
-    }
+//         auxMod->applyInitial();
+//     }
 
-        /*!
-     * \brief Called by the update() method when the grid should be refined.
-     */
-  //  void adaptGrid()
-  //  {
+//         /*!
+//      * \brief Called by the update() method when the grid should be refined.
+//      */
+//   //  void adaptGrid()
+//   //  {
 
-//    }
+// //    }
 
-    void updateSolution(const BVector& dx)
-    {
-         OPM_TIMEBLOCK(updateSolution);
-         auto& ebosNewtonMethod = this->simulator_.model().newtonMethod();
-         SolutionVector& solution = this->simulator_.model().solution(/*timeIdx=*/0);
+//     void updateSolution(const BVector& dx)
+//     {
+//          OPM_TIMEBLOCK(updateSolution);
+//          auto& ebosNewtonMethod = this->simulator_.model().newtonMethod();
+//          SolutionVector& solution = this->simulator_.model().solution(/*timeIdx=*/0);
 
-         ebosNewtonMethod.update_(/*nextSolution=*/solution,
-                                  /*curSolution=*/solution,
-                                  /*update=*/dx,
-                                  /*resid=*/dx); // the update routines of the blac
-                                                 // oil model do not care about the
-                                                 // residual
+//          ebosNewtonMethod.update_(/*nextSolution=*/solution,
+//                                   /*curSolution=*/solution,
+//                                   /*update=*/dx,
+//                                   /*resid=*/dx); // the update routines of the blac
+//                                                  // oil model do not care about the
+//                                                  // residual
 
-         // if the solution is updated, the intensive quantities need to be recalculated
-         {
-            OPM_TIMEBLOCK_LOCAL(invalidateAndUpdateIntensiveQuantities);
-            this->simulator_.model().invalidateAndUpdateIntensiveQuantities(/*timeIdx=*/0);
-            //ebosSimulator_.problem().eclWriter()->mutableEclOutputModule().invalidateLocalData();
-         }
-     }
-   //  void update(const ElementContext& elemCtx, unsigned dofIdx, unsigned timeIdx)
-   // {
-   //     OPM_TIMEBLOCK_LOCAL(update);
-   //     ParentType::update(elemCtx, dofIdx, timeIdx);
-   //     OPM_TIMEBLOCK_LOCAL(blackoilIntensiveQuanititiesUpdate);
-  //  }
+//          // if the solution is updated, the intensive quantities need to be recalculated
+//          {
+//             OPM_TIMEBLOCK_LOCAL(invalidateAndUpdateIntensiveQuantities);
+//             this->simulator_.model().invalidateAndUpdateIntensiveQuantities(/*timeIdx=*/0);
+//             //ebosSimulator_.problem().eclWriter()->mutableEclOutputModule().invalidateLocalData();
+//          }
+//      }
+//    //  void update(const ElementContext& elemCtx, unsigned dofIdx, unsigned timeIdx)
+//    // {
+//    //     OPM_TIMEBLOCK_LOCAL(update);
+//    //     ParentType::update(elemCtx, dofIdx, timeIdx);
+//    //     OPM_TIMEBLOCK_LOCAL(blackoilIntensiveQuanititiesUpdate);
+//   //  }
 
- //          void invalidateAndUpdateIntensiveQuantities(unsigned timeIdx) const
- //          {
- //      OPM_TIMEBLOCK_LOCAL(invalidateAndUpdateIntensiveQuantities);
- //      Parent::invalidateAndUpdateIntensiveQuantities(timeIdx);
- //   }
-        //     IntensiveQuantities intensiveQuantities(unsigned globalIdx, unsigned timeIdx) const{
-        //     OPM_TIMEBLOCK_LOCAL(intensiveQuantitiesNoCache);
-        //     const auto& primaryVar = this->solution(timeIdx)[globalIdx];
-        //     const auto& problem = this->simulator_.problem();
-        //     //IntensiveQuantities* intQuants = &(this->intensiveQuantityCache_[timeIdx][globalIdx]);
-        //     if (!(this->enableIntensiveQuantityCache_) ||
-        //         !(this->intensiveQuantityCacheUpToDate_[timeIdx][globalIdx])){
-        //         IntensiveQuantities intQuants;
-        //         intQuants.update(problem,primaryVar, globalIdx, timeIdx);
-        //         return intQuants;// reqiored for updating extrution factor
-        //     }else{
-        //         IntensiveQuantities intQuants = (this->intensiveQuantityCache_[timeIdx][globalIdx]);
-        //         return intQuants;
-        //     }
+//  //          void invalidateAndUpdateIntensiveQuantities(unsigned timeIdx) const
+//  //          {
+//  //      OPM_TIMEBLOCK_LOCAL(invalidateAndUpdateIntensiveQuantities);
+//  //      Parent::invalidateAndUpdateIntensiveQuantities(timeIdx);
+//  //   }
+//         //     IntensiveQuantities intensiveQuantities(unsigned globalIdx, unsigned timeIdx) const{
+//         //     OPM_TIMEBLOCK_LOCAL(intensiveQuantitiesNoCache);
+//         //     const auto& primaryVar = this->solution(timeIdx)[globalIdx];
+//         //     const auto& problem = this->simulator_.problem();
+//         //     //IntensiveQuantities* intQuants = &(this->intensiveQuantityCache_[timeIdx][globalIdx]);
+//         //     if (!(this->enableIntensiveQuantityCache_) ||
+//         //         !(this->intensiveQuantityCacheUpToDate_[timeIdx][globalIdx])){
+//         //         IntensiveQuantities intQuants;
+//         //         intQuants.update(problem,primaryVar, globalIdx, timeIdx);
+//         //         return intQuants;// reqiored for updating extrution factor
+//         //     }else{
+//         //         IntensiveQuantities intQuants = (this->intensiveQuantityCache_[timeIdx][globalIdx]);
+//         //         return intQuants;
+//         //     }
 
-        // }
+//         // }
 
-       };
-}
+//        };
+// }
+// namespace Opm {
+// namespace Properties {
+// namespace TTag {
+// struct EclFlowProblemAlugrid {
+//     using InheritsFrom = std::tuple<EclFlowProblem>;
+// };
+// }
+//  // template<class TypeTag>
+//  // struct Stencil<TypeTag, TTag::EclFlowProblemAlugrid>
+//  // {
+//  // private:
+//  //     using Scalar = GetPropType<TypeTag, Properties::Scalar>;
+//  //     using GridView = GetPropType<TypeTag, Properties::GridView>;
+
+//  // public:
+//  //     using type = EcfvStencil<Scalar,
+//  //                              GridView,
+//  //                              /*needIntegrationPos=*/true,
+//  //                              /*needIntegrationPos=*/true>;
+//  // };
+//     template<class TypeTag>
+//     struct Model<TypeTag, TTag::EclFlowProblemAlugrid> {
+//         // using type = BlackOilModelDynamic<TypeTag>;
+//         using type = FIBlackOilModel<TypeTag>;
+//     };
+//     // template<class TypeTag>
+//     // struct SpatialDiscretizationSplice<TypeTag, TTag::EclFlowProblemAlugrid> {
+//     //     using type = TTag::EcfvDiscretization;
+//     // };
+//    // template<class TypeTag>
+//    //  struct Grid<TypeTag, TTag::EclFlowProblemAlugrid> {
+//    //      static const int dim = 3;
+//    //      using type = Dune::ALUGrid<dim, dim, Dune::cube, Dune::nonconforming >;
+//    //  };
+//    //  // alugrid need cp grid as equilgrid
+//    //  template<class TypeTag>
+//    //  struct EquilGrid<TypeTag, TTag::EclFlowProblemAlugrid> {
+//    //  using type = Dune::CpGrid;
+//    //  };
+//    //  template<class TypeTag>
+//    //  struct Problem<TypeTag, TTag::EclFlowProblemAlugrid> {
+//    //      using type = EclProblemDynamic<TypeTag>;
+//    //  };
+//    //  template<class TypeTag>
+//    //  struct IntensiveQuantities<TypeTag, TTag::EclFlowProblemAlugrid> {
+//    //      //using type = BlackOilIntensiveQuantitiesDynamic<TypeTag>;
+//    //      using type = BlackOilIntensiveQuantities<TypeTag>;
+//    //  };
+//    //  template<class TypeTag>
+//    //  struct Vanguard<TypeTag, TTag::EclFlowProblemAlugrid> {
+//    //      using type = Opm::EclAluGridVanguard<TypeTag>;
+//    //  };
+// template<class TypeTag>
+// struct EclEnableAquifers<TypeTag, TTag::EclFlowProblemAlugrid> {
+//     static constexpr bool value = false;
+// };
+
+
+//     //template<class TypeTag>
+//  //   struct LocalResidual<TypeTag, TTag::EclFlowProblemTest> { using type = BlackOilLocalResidualTPFA<TypeTag>; };
+//     //template<class TypeTag>
+//     //struct IntensiveQuantities<TypeTag, TTag::EclFlowProblemTest> {
+//     //using type = BlackOilIntensiveQuantitiesSimple<TypeTag>;
+//     //};
+// // use automatic differentiation for this simulator
+// // template<class TypeTag>
+// // struct LocalLinearizerSplice<TypeTag, TTag::EclFlowProblemAlugrid> { using type = TTag::AutoDiffLocalLinearizer; };
+// // By default, include the intrinsic permeability tensor to the VTK output files
+// template<class TypeTag>
+// struct VtkWriteIntrinsicPermeabilities<TypeTag, TTag::EclFlowProblemAlugrid> { static constexpr bool value = true; };
+
+// // enable the storage cache by default for this problem
+// template<class TypeTag>
+// struct EnableStorageCache<TypeTag, TTag::EclFlowProblemAlugrid> { static constexpr bool value = true; };
+
+// // enable the cache for intensive quantities by default for this problem
+// template<class TypeTag>
+// struct EnableIntensiveQuantityCache<TypeTag, TTag::EclFlowProblemAlugrid> { static constexpr bool value = true; };
+// // this problem works fine if the linear solver uses single precision scalars
+// // template<class TypeTag>
+// // struct LinearSolverScalar<TypeTag, TTag::EclFlowProblemAlugrid> { using type = float; };
+// // template <class TypeTag>
+// // struct FluxModule<TypeTag, TTag::EclFlowProblemAlugrid> {
+// //     using type = TransFluxModule<TypeTag>;
+// // };
+
+// // template<class TypeTag>
+// // struct GradientCalculator<TypeTag, TTag::EclFlowProblemAlugrid> {
+// //     using type = FvBaseGradientCalculator<TypeTag>;
+// // };
+
+// // template<class TypeTag>
+// // struct BaseDiscretizationType<TypeTag,TTag::EclFlowProblemAlugrid> {
+// //     using type = FvBaseDiscretizationFemAdapt<TypeTag>;
+// // };
+// // template<class TypeTag>
+// // struct GridPart<TypeTag, TTag::EclFlowProblemAlugrid>
+// // {
+// //     using Grid = GetPropType<TypeTag, Properties::Grid>;
+// //     using type = Dune::Fem::AdaptiveLeafGridPart<Grid>;
+// // };
+
+// // template<class TypeTag>
+// // struct GridView<TypeTag, TTag::EclFlowProblemAlugrid> { using type = typename GetPropType<TypeTag, Properties::GridPart>::GridViewType; };
+
+// // template<class TypeTag>
+// // struct DiscreteFunctionSpace<TypeTag, TTag::EclFlowProblemAlugrid>
+// // {
+// //     using Scalar = GetPropType<TypeTag, Properties::Scalar>  ;
+// //     using GridPart = GetPropType<TypeTag, Properties::GridPart>;
+// //     enum { numEq = getPropValue<TypeTag, Properties::NumEq>() };
+// //     using FunctionSpace = Dune::Fem::FunctionSpace<typename GridPart::GridType::ctype,
+// //                                                    Scalar,
+// //                                                    GridPart::GridType::dimensionworld,
+// //                                                    numEq>;
+// //     using type = Dune::Fem::FiniteVolumeSpace< FunctionSpace, GridPart, 0 >;
+
+// // };
+
+// // template<class TypeTag>
+// // struct DiscreteFunction<TypeTag, TTag::EclFlowProblemAlugrid> {
+// //     using DiscreteFunctionSpace  = GetPropType<TypeTag, Properties::DiscreteFunctionSpace>;
+// //     using PrimaryVariables  = GetPropType<TypeTag, Properties::PrimaryVariables>;
+// //     using type = Dune::Fem::ISTLBlockVectorDiscreteFunction<DiscreteFunctionSpace, PrimaryVariables>;
+// // };
+
+
+// template<class TypeTag>
+// struct EnableDispersion<TypeTag, TTag::EclFlowProblemAlugrid> { static constexpr bool value = false; };
+
+
+// template<class TypeTag>
+// struct EnableEnergy<TypeTag, TTag::EclFlowProblemAlugrid> {
+//     static constexpr bool value = false;
+// };
+
+// template<class TypeTag>
+// struct EnableBrine<TypeTag, TTag::EclFlowProblemAlugrid> {
+//     static constexpr bool value = false;
+// };
+
+// template<class TypeTag>
+// struct EnableDisgasInWater<TypeTag, TTag::EclFlowProblemAlugrid> {
+//     static constexpr bool value = true;
+// };
+// template<class TypeTag>
+// struct EnableVapwat<TypeTag, TTag::EclFlowProblemAlugrid> {
+//     static constexpr bool value = true;
+// };
+
+// template<class TypeTag>
+// struct Indices<TypeTag, TTag::EclFlowProblemAlugrid>
+// {
+// private:
+//     // it is unfortunately not possible to simply use 'TypeTag' here because this leads
+//     // to cyclic definitions of some properties. if this happens the compiler error
+//     // messages unfortunately are *really* confusing and not really helpful.
+//     using BaseTypeTag = TTag::EclFlowProblem;
+//     using FluidSystem = GetPropType<BaseTypeTag, Properties::FluidSystem>;
+
+// public:
+//     typedef BlackOilTwoPhaseIndices<getPropValue<TypeTag, Properties::EnableSolvent>(),
+//                                     getPropValue<TypeTag, Properties::EnableExtbo>(),
+//                                     getPropValue<TypeTag, Properties::EnablePolymer>(),
+//                                     getPropValue<TypeTag, Properties::EnableEnergy>(),
+//                                     getPropValue<TypeTag, Properties::EnableFoam>(),
+//                                     getPropValue<TypeTag, Properties::EnableBrine>(),
+//                                     /*PVOffset=*/0,
+//                                     /*disabledCompIdx=*/FluidSystem::oilCompIdx,
+//                                     getPropValue<TypeTag, Properties::EnableMICP>()> type;
+// };
+
+
+
+// template<class TypeTag>
+// struct FluidSystem<TypeTag, TTag::EclFlowProblemAlugrid>
+// {
+// private:
+//     using Scalar = GetPropType<TypeTag, Properties::Scalar>;
+
+// public:
+//     using type = Opm::BlackOilFluidSystem<Scalar>;
+// };
+
+
+// }
+// }
 namespace Opm {
 namespace Properties {
 namespace TTag {
-struct EclFlowProblemAlugrid {
+struct EclFlowGasWaterProblem {
     using InheritsFrom = std::tuple<EclFlowProblem>;
 };
 }
- template<class TypeTag>
- struct Stencil<TypeTag, TTag::EclFlowProblemAlugrid>
- {
- private:
-     using Scalar = GetPropType<TypeTag, Properties::Scalar>;
-     using GridView = GetPropType<TypeTag, Properties::GridView>;
-
- public:
-     using type = EcfvStencil<Scalar,
-                              GridView,
-                              /*needIntegrationPos=*/true,
-                              /*needIntegrationPos=*/true>;
- };
-    template<class TypeTag>
-    struct Model<TypeTag, TTag::EclFlowProblemAlugrid> {
-        // using type = BlackOilModelDynamic<TypeTag>;
-        using type = FIBlackOilModel<TypeTag>;
-    };
-    template<class TypeTag>
-    struct SpatialDiscretizationSplice<TypeTag, TTag::EclFlowProblemAlugrid> {
-        using type = TTag::EcfvDiscretization;
-    };
    template<class TypeTag>
-    struct Grid<TypeTag, TTag::EclFlowProblemAlugrid> {
+    struct Grid<TypeTag, TTag::EclFlowGasWaterProblem> {
         static const int dim = 3;
         using type = Dune::ALUGrid<dim, dim, Dune::cube, Dune::nonconforming >;
     };
     // alugrid need cp grid as equilgrid
     template<class TypeTag>
-    struct EquilGrid<TypeTag, TTag::EclFlowProblemAlugrid> {
+    struct EquilGrid<TypeTag, TTag::EclFlowGasWaterProblem> {
     using type = Dune::CpGrid;
     };
+    // template<class TypeTag>
+    // struct Problem<TypeTag, TTag::EclFlowGasWaterProblem> {
+    //     using type = EclProblemDynamic<TypeTag>;
+    // };
     template<class TypeTag>
-    struct Problem<TypeTag, TTag::EclFlowProblemAlugrid> {
-        using type = EclProblemDynamic<TypeTag>;
-    };
-    template<class TypeTag>
-    struct IntensiveQuantities<TypeTag, TTag::EclFlowProblemAlugrid> {
+    struct IntensiveQuantities<TypeTag, TTag::EclFlowGasWaterProblem> {
         //using type = BlackOilIntensiveQuantitiesDynamic<TypeTag>;
         using type = BlackOilIntensiveQuantities<TypeTag>;
     };
     template<class TypeTag>
-    struct Vanguard<TypeTag, TTag::EclFlowProblemAlugrid> {
+    struct Vanguard<TypeTag, TTag::EclFlowGasWaterProblem> {
         using type = Opm::EclAluGridVanguard<TypeTag>;
     };
-template<class TypeTag>
-struct EclEnableAquifers<TypeTag, TTag::EclFlowProblemAlugrid> {
-    static constexpr bool value = false;
-};
 
-
-    //template<class TypeTag>
- //   struct LocalResidual<TypeTag, TTag::EclFlowProblemTest> { using type = BlackOilLocalResidualTPFA<TypeTag>; };
-    //template<class TypeTag>
-    //struct IntensiveQuantities<TypeTag, TTag::EclFlowProblemTest> {
-    //using type = BlackOilIntensiveQuantitiesSimple<TypeTag>;
-    //};
-// use automatic differentiation for this simulator
+//template<class TypeTag>
+//struct Linearizer<TypeTag, TTag::EclFlowGasWaterProblem> { using type = TpfaLinearizer<TypeTag>; };
 template<class TypeTag>
-struct LocalLinearizerSplice<TypeTag, TTag::EclFlowProblemAlugrid> { using type = TTag::AutoDiffLocalLinearizer; };
-// By default, include the intrinsic permeability tensor to the VTK output files
-template<class TypeTag>
-struct VtkWriteIntrinsicPermeabilities<TypeTag, TTag::EclFlowProblemAlugrid> { static constexpr bool value = true; };
-
-// enable the storage cache by default for this problem
-template<class TypeTag>
-struct EnableStorageCache<TypeTag, TTag::EclFlowProblemAlugrid> { static constexpr bool value = true; };
-
-// enable the cache for intensive quantities by default for this problem
-template<class TypeTag>
-struct EnableIntensiveQuantityCache<TypeTag, TTag::EclFlowProblemAlugrid> { static constexpr bool value = true; };
-// this problem works fine if the linear solver uses single precision scalars
-// template<class TypeTag>
-// struct LinearSolverScalar<TypeTag, TTag::EclFlowProblemAlugrid> { using type = float; };
-// template <class TypeTag>
-// struct FluxModule<TypeTag, TTag::EclFlowProblemAlugrid> {
-//     using type = TransFluxModule<TypeTag>;
-// };
-
-// template<class TypeTag>
-// struct GradientCalculator<TypeTag, TTag::EclFlowProblemAlugrid> {
-//     using type = FvBaseGradientCalculator<TypeTag>;
-// };
+struct LocalLinearizerSplice<TypeTag, TTag::EclFlowGasWaterProblem> { using type = TTag::AutoDiffLocalLinearizer; };
+//template<class TypeTag>
+//struct LocalResidual<TypeTag, TTag::EclFlowGasWaterProblem> { using type = BlackOilLocalResidualTPFA<TypeTag>; };
 
 template<class TypeTag>
-struct BaseDiscretizationType<TypeTag,TTag::EclFlowProblemAlugrid> {
+struct BaseDiscretizationType<TypeTag,TTag::EclFlowGasWaterProblem> {
     using type = FvBaseDiscretizationFemAdapt<TypeTag>;
 };
 template<class TypeTag>
-struct GridPart<TypeTag, TTag::EclFlowProblemAlugrid>
+struct GridPart<TypeTag, TTag::EclFlowGasWaterProblem>
 {
     using Grid = GetPropType<TypeTag, Properties::Grid>;
     using type = Dune::Fem::AdaptiveLeafGridPart<Grid>;
 };
 
 template<class TypeTag>
-struct GridView<TypeTag, TTag::EclFlowProblemAlugrid> { using type = typename GetPropType<TypeTag, Properties::GridPart>::GridViewType; };
+struct GridView<TypeTag, TTag::EclFlowGasWaterProblem> { using type = typename GetPropType<TypeTag, Properties::GridPart>::GridViewType; };
+
 
 template<class TypeTag>
-struct DiscreteFunctionSpace<TypeTag, TTag::EclFlowProblemAlugrid>
+struct DiscreteFunctionSpace<TypeTag, TTag::EclFlowGasWaterProblem>
 {
     using Scalar = GetPropType<TypeTag, Properties::Scalar>  ;
     using GridPart = GetPropType<TypeTag, Properties::GridPart>;
@@ -291,38 +428,66 @@ struct DiscreteFunctionSpace<TypeTag, TTag::EclFlowProblemAlugrid>
 };
 
 template<class TypeTag>
-struct DiscreteFunction<TypeTag, TTag::EclFlowProblemAlugrid> {
+struct DiscreteFunction<TypeTag, TTag::EclFlowGasWaterProblem> {
     using DiscreteFunctionSpace  = GetPropType<TypeTag, Properties::DiscreteFunctionSpace>;
     using PrimaryVariables  = GetPropType<TypeTag, Properties::PrimaryVariables>;
     using type = Dune::Fem::ISTLBlockVectorDiscreteFunction<DiscreteFunctionSpace, PrimaryVariables>;
 };
 
+ template<class TypeTag>
+ struct Stencil<TypeTag, TTag::EclFlowGasWaterProblem>
+ {
+ private:
+     using Scalar = GetPropType<TypeTag, Properties::Scalar>;
+     using GridView = GetPropType<TypeTag, Properties::GridView>;
+
+ public:
+     using type = EcfvStencil<Scalar,
+                              GridView,
+                              /*needIntegrationPos=*/true,
+                              /*needIntegrationPos=*/true>;
+ };
+
 
 template<class TypeTag>
-struct EnableDispersion<TypeTag, TTag::EclFlowProblemAlugrid> { static constexpr bool value = false; };
+struct FluxModule<TypeTag, TTag::EclFlowGasWaterProblem> {
+    using type = TransFluxModule<TypeTag>;
+};
+
+template<class TypeTag>
+struct GradientCalculator<TypeTag, TTag::EclFlowGasWaterProblem> {
+    using type = FvBaseGradientCalculator<TypeTag>;
+};
+
 
 
 template<class TypeTag>
-struct EnableEnergy<TypeTag, TTag::EclFlowProblemAlugrid> {
+struct EnableDiffusion<TypeTag, TTag::EclFlowGasWaterProblem> { static constexpr bool value = false; };
+
+template<class TypeTag>
+struct EnableEnergy<TypeTag, TTag::EclFlowGasWaterProblem> {
     static constexpr bool value = false;
 };
 
 template<class TypeTag>
-struct EnableBrine<TypeTag, TTag::EclFlowProblemAlugrid> {
+struct EnableBrine<TypeTag, TTag::EclFlowGasWaterProblem> {
     static constexpr bool value = false;
 };
 
 template<class TypeTag>
-struct EnableDisgasInWater<TypeTag, TTag::EclFlowProblemAlugrid> {
+struct EnableDisgasInWater<TypeTag, TTag::EclFlowGasWaterProblem> {
     static constexpr bool value = true;
 };
 template<class TypeTag>
-struct EnableVapwat<TypeTag, TTag::EclFlowProblemAlugrid> {
+struct EnableVapwat<TypeTag, TTag::EclFlowGasWaterProblem> {
     static constexpr bool value = true;
 };
 
+
+
+//! The indices required by the model
 template<class TypeTag>
-struct Indices<TypeTag, TTag::EclFlowProblemAlugrid>
+struct Indices<TypeTag, TTag::EclFlowGasWaterProblem>
 {
 private:
     // it is unfortunately not possible to simply use 'TypeTag' here because this leads
@@ -342,26 +507,11 @@ public:
                                     /*disabledCompIdx=*/FluidSystem::oilCompIdx,
                                     getPropValue<TypeTag, Properties::EnableMICP>()> type;
 };
-
-
-
-template<class TypeTag>
-struct FluidSystem<TypeTag, TTag::EclFlowProblemAlugrid>
-{
-private:
-    using Scalar = GetPropType<TypeTag, Properties::Scalar>;
-
-public:
-    using type = Opm::BlackOilFluidSystem<Scalar>;
-};
-
-
-}
-}
+}}
 int main(int argc, char** argv)
 {
   //  OPM_TIMEBLOCK(fullSimulation);
-  //  using TypeTag = Opm::Properties::TTag::EclFlowProblemAlugrid;
+  //  using TypeTag = Opm::Properties::TTag::EclFlowGasWaterProblem;
 
   //  auto mainObject = std::make_unique<Opm::Main>(argc, argv);
   //  auto ret = mainObject->runStatic<TypeTag>();
@@ -372,7 +522,7 @@ int main(int argc, char** argv)
     //auto ret = mainObject.runStatic<TypeTag>();
    // return ret;
 
-    using TypeTag = Opm::Properties::TTag::EclFlowProblemAlugrid;
+    using TypeTag = Opm::Properties::TTag::EclFlowGasWaterProblem;
     auto mainObject = Opm::Main(argc, argv);
     return mainObject.runStatic<TypeTag>();
 }

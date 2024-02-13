@@ -926,9 +926,6 @@ public:
                                       }
                                       return coords;
                                   });
-        readMaterialParameters_();
-        readThermalParameters_();
-
         //NB should be done better
         if(!(orgVolume_.size()>0)){
             orgVolume_.resize(this->model().numGridDof());
@@ -936,6 +933,9 @@ public:
                 orgVolume_[globalDofIdx] = this->model().dofTotalVolume(globalDofIdx);
             }
         }
+        readMaterialParameters_();
+        readThermalParameters_();
+
         //orgVolume_ = simulator.vanguard().cellVolume();
         // Re-ordering in case of ALUGrid
         std::function<unsigned int(unsigned int)> gridToEquilGrid = [&simulator](unsigned int i) {
@@ -1309,7 +1309,7 @@ RestrictProlongOperator restrictProlongOperator()
             // re-compute all quantities which may possibly be affected.
             transmissibilities_.update(true, equilGridToGrid);
             this->referencePorosity_[1] = this->referencePorosity_[0];
-            updateReferencePorosity_();
+            this->updateReferencePorosity_();
             updatePffDofData_();
             this->model().linearizer().updateDiscretizationParameters();
         }
@@ -1734,6 +1734,14 @@ RestrictProlongOperator restrictProlongOperator()
      * compressibility and water induced rock compaction) to it which depend on the
      * current physical conditions.
      */
+
+    // just a hack because of wrong? use in  BlackoilModelEbos
+    Scalar referencePorosity(unsigned elementIdx, unsigned timeIdx) const
+    {
+        int postElementIndex = postAdaptGridIndex_[elementIdx];
+        return this->referencePorosity_[timeIdx][postElementIndex];
+    }
+
     template <class Context>
     Scalar porosity(const Context& context, unsigned spaceIdx, unsigned timeIdx) const
     {
@@ -2893,7 +2901,7 @@ protected:
         OPM_END_PARALLEL_TRY_CATCH("Invalid region numbers: ", vanguard.gridView().comm());
         ////////////////////////////////
         // porosity
-        updateReferencePorosity_();
+        this->updateReferencePorosity_();
         this->referencePorosity_[1] = this->referencePorosity_[0];
         ////////////////////////////////
 
@@ -2970,7 +2978,7 @@ protected:
         this->updateKrnum_(postAdaptGridIndex_);
         ////////////////////////////////
         // porosity
-        updateAdaptedPorosity_();
+        //updateAdaptedPorosity_();
         this->referencePorosity_[1] = this->referencePorosity_[0];
     }
 
@@ -2991,86 +2999,113 @@ protected:
         }
     }
 
+
     void updateReferencePorosity_()
     {
         const auto& simulator = this->simulator();
-        auto gridView = simulator.vanguard().gridView();
         const auto& vanguard = simulator.vanguard();
         const auto& eclState = vanguard.eclState();
 
-        std::size_t numDof = gridView.size(0);
+        std::size_t numOrgDof = orgVolume_.size();
 
-        this->referencePorosity_[/*timeIdx=*/0].resize(numDof);
+        this->referencePorosity_[/*timeIdx=*/0].resize(numOrgDof);
 
         const auto& fp = eclState.fieldProps();
         const std::vector<double> porvData = fp.porv(false);
         const std::vector<int> actnumData = fp.actnum();
-      //  for (std::size_t dofIdx = 0; dofIdx < numDof; ++ dofIdx) {
-      //      Scalar poreVolume = porvData[0];
+        for (std::size_t dofIdx = 0; dofIdx < numOrgDof; ++dofIdx) {
+            Scalar poreVolume = porvData[dofIdx];
 
             // we define the porosity as the accumulated pore volume divided by the
             // geometric volume of the element. Note that -- in pathetic cases -- it can
             // be larger than 1.0!
-      //      Scalar dofVolume = simulator.model().dofTotalVolume(0);
-      //      assert(dofVolume > 0.0);
-     //       this->referencePorosity_[/*timeIdx=*/0][dofIdx] = poreVolume/dofVolume;
-     //   }
-
-        auto it = gridView.template begin<0>();
-        const auto& endIt = gridView.template end<0>();
-        const auto& elementMapper = this->model().elementMapper();
-        auto& sol = this->model().solution(/*timeIdx=*/0);
-        for (; it != endIt; ++it) {
-            unsigned globalElemIdx = elementMapper.index(*it);
-            Scalar poreVolume = porvData[simulator.problem().container_[*it].preAdaptIndex];
-
-            // we define the porosity as the accumulated pore volume divided by the
-            // geometric volume of the element. Note that -- in pathetic cases -- it can
-            // be larger than 1.0!
-            Scalar dofVolume = simulator.model().dofTotalVolume(simulator.problem().container_[*it].preAdaptIndex);
+            Scalar dofVolume = this->dofTotalVolumeOrg(dofIdx);
             assert(dofVolume > 0.0);
-            this->referencePorosity_[/*timeIdx=*/0][globalElemIdx] = poreVolume/dofVolume;
+            this->referencePorosity_[/*timeIdx=*/0][dofIdx] = poreVolume/dofVolume;
         }
     }
+    // void updateReferencePorosity_()
+    // {
+    //     const auto& simulator = this->simulator();
+    //     auto gridView = simulator.vanguard().gridView();
+    //     const auto& vanguard = simulator.vanguard();
+    //     const auto& eclState = vanguard.eclState();
 
-    void updateAdaptedPorosity_()
-    {
-        const auto& simulator = this->simulator();
-        auto gridView = simulator.vanguard().gridView();
-        const auto& vanguard = simulator.vanguard();
-        const auto& eclState = vanguard.eclState();
+    //     std::size_t numDof = gridView.size(0);
 
-        std::size_t numDof = gridView.size(0);
+    //     this->referencePorosity_[/*timeIdx=*/0].resize(numDof);
 
-        this->referencePorosity_[/*timeIdx=*/0].resize(numDof);
+    //     const auto& fp = eclState.fieldProps();
+    //     const std::vector<double> porvData = fp.porv(false);
+    //     const std::vector<int> actnumData = fp.actnum();
+    //   //  for (std::size_t dofIdx = 0; dofIdx < numDof; ++ dofIdx) {
+    //   //      Scalar poreVolume = porvData[0];
 
-        const auto& fp = eclState.fieldProps();
-        const std::vector<double> porvData = fp.porv(false);
-        const std::vector<int> actnumData = fp.actnum();
-      //  for (std::size_t dofIdx = 0; dofIdx < numDof; ++ dofIdx) {
-      //      Scalar poreVolume = porvData[0];
+    //         // we define the porosity as the accumulated pore volume divided by the
+    //         // geometric volume of the element. Note that -- in pathetic cases -- it can
+    //         // be larger than 1.0!
+    //   //      Scalar dofVolume = simulator.model().dofTotalVolume(0);
+    //   //      assert(dofVolume > 0.0);
+    //  //       this->referencePorosity_[/*timeIdx=*/0][dofIdx] = poreVolume/dofVolume;
+    //  //   }
 
-            // we define the porosity as the accumulated pore volume divided by the
-            // geometric volume of the element. Note that -- in pathetic cases -- it can
-            // be larger than 1.0!
-      //      Scalar dofVolume = simulator.model().dofTotalVolume(0);
-      //      assert(dofVolume > 0.0);
-     //       this->referencePorosity_[/*timeIdx=*/0][dofIdx] = poreVolume/dofVolume;
-     //   }
+    //     auto it = gridView.template begin<0>();
+    //     const auto& endIt = gridView.template end<0>();
+    //     const auto& elementMapper = this->model().elementMapper();
+    //     auto& sol = this->model().solution(/*timeIdx=*/0);
+    //     for (; it != endIt; ++it) {
+    //         unsigned globalElemIdx = elementMapper.index(*it);
+    //         Scalar poreVolume = porvData[simulator.problem().container_[*it].preAdaptIndex];
 
-        auto it = gridView.template begin<0>();
-        const auto& endIt = gridView.template end<0>();
-        const auto& elementMapper = this->model().elementMapper();
-        auto& sol = this->model().solution(/*timeIdx=*/0);
-        for (; it != endIt; ++it) {
-            unsigned globalElemIdx = elementMapper.index(*it);
-            Scalar poreVolume = porvData[simulator.problem().container_[*it].preAdaptIndex];
+    //         // we define the porosity as the accumulated pore volume divided by the
+    //         // geometric volume of the element. Note that -- in pathetic cases -- it can
+    //         // be larger than 1.0!
+    //         Scalar dofVolume = simulator.model().dofTotalVolume(simulator.problem().container_[*it].preAdaptIndex);
+    //         assert(dofVolume > 0.0);
+    //         this->referencePorosity_[/*timeIdx=*/0][globalElemIdx] = poreVolume/dofVolume;
+    //     }
+    // }
 
-            // we define the porosity as the accumulated pore volume divided by the
-            // geometric volume of the element. Note that -- in pathetic cases -- it can
-            this->referencePorosity_[/*timeIdx=*/0][globalElemIdx] = this->referencePorosity_[/*timeIdx=*/1][simulator.problem().container_[*it].preAdaptIndex];
-        }
-    }
+    // void updateAdaptedPorosity_()
+    // {
+    //     const auto& simulator = this->simulator();
+    //     auto gridView = simulator.vanguard().gridView();
+    //     const auto& vanguard = simulator.vanguard();
+    //     const auto& eclState = vanguard.eclState();
+
+    //     std::size_t numDof = gridView.size(0);
+
+    //     this->referencePorosity_[/*timeIdx=*/0].resize(numDof);
+
+    //     const auto& fp = eclState.fieldProps();
+    //     const std::vector<double> porvData = fp.porv(false);
+    //     const std::vector<int> actnumData = fp.actnum();
+    //   //  for (std::size_t dofIdx = 0; dofIdx < numDof; ++ dofIdx) {
+    //   //      Scalar poreVolume = porvData[0];
+
+    //         // we define the porosity as the accumulated pore volume divided by the
+    //         // geometric volume of the element. Note that -- in pathetic cases -- it can
+    //         // be larger than 1.0!
+    //   //      Scalar dofVolume = simulator.model().dofTotalVolume(0);
+    //   //      assert(dofVolume > 0.0);
+    //  //       this->referencePorosity_[/*timeIdx=*/0][dofIdx] = poreVolume/dofVolume;
+    //  //   }
+
+    //     auto it = gridView.template begin<0>();
+    //     const auto& endIt = gridView.template end<0>();
+    //     const auto& elementMapper = this->model().elementMapper();
+    //     auto& sol = this->model().solution(/*timeIdx=*/0);
+    //     for (; it != endIt; ++it) {
+    //         unsigned globalElemIdx = elementMapper.index(*it);
+    //         Scalar poreVolume = porvData[simulator.problem().container_[*it].preAdaptIndex];
+
+    //         // we define the porosity as the accumulated pore volume divided by the
+    //         // geometric volume of the element. Note that -- in pathetic cases -- it can
+    //         this->referencePorosity_[/*timeIdx=*/0][globalElemIdx] = this->referencePorosity_[/*timeIdx=*/1][simulator.problem().container_[*it].preAdaptIndex];
+    //     }
+    // }
+
+
     void readInitialCondition_()
     {
         const auto& simulator = this->simulator();

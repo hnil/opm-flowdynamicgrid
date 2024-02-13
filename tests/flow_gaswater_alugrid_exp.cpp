@@ -224,7 +224,8 @@ struct EclFlowProblemAlugrid {
  };
     template<class TypeTag>
     struct Model<TypeTag, TTag::EclFlowProblemAlugrid> {
-         using type = BlackOilModelDynamic<TypeTag>;
+        using type = BlackOilModelDynamic<TypeTag>;
+        //using type = FIBlackOilModel<TypeTag>;
     };
     template<class TypeTag>
     struct SpatialDiscretizationSplice<TypeTag, TTag::EclFlowProblemAlugrid> {
@@ -243,6 +244,7 @@ struct EclFlowProblemAlugrid {
     template<class TypeTag>
     struct Problem<TypeTag, TTag::EclFlowProblemAlugrid> {
         using type = EclProblemDynamic<TypeTag>;
+        //using type = EclProblem<TypeTag>;
     };
     template<class TypeTag>
     struct IntensiveQuantities<TypeTag, TTag::EclFlowProblemAlugrid> {
@@ -278,9 +280,9 @@ struct EnableStorageCache<TypeTag, TTag::EclFlowProblemAlugrid> { static constex
 // enable the cache for intensive quantities by default for this problem
 template<class TypeTag>
 struct EnableIntensiveQuantityCache<TypeTag, TTag::EclFlowProblemAlugrid> { static constexpr bool value = true; };
-// this problem works fine if the linear solver uses single precision scalars
-template<class TypeTag>
-struct LinearSolverScalar<TypeTag, TTag::EclFlowProblemAlugrid> { using type = float; };
+//this problem works fine if the linear solver uses single precision scalars
+// template<class TypeTag>
+// struct LinearSolverScalar<TypeTag, TTag::EclFlowProblemAlugrid> { using type = float; };
 template <class TypeTag>
 struct FluxModule<TypeTag, TTag::EclFlowProblemAlugrid> {
     using type = TransFluxModule<TypeTag>;
