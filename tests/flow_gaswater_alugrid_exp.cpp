@@ -85,6 +85,7 @@ public:
         using ParentType = GetPropType<TypeTag, Properties::DiscIntensiveQuantities>;
         using ElementIterator = typename GridView::template Codim<0>::Iterator;
         using Simulator = GetPropType<TypeTag, Properties::Simulator>;
+        public:
         using FluidSystem = GetPropType<TypeTag, Properties::FluidSystem>;
         using IntensiveQuantities = GetPropType<TypeTag, Properties::IntensiveQuantities>;
 
