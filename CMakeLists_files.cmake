@@ -26,7 +26,8 @@
 # originally generated with the command:
 # find opm -name '*.c*' -printf '\t%p\n' | sort
 list (APPEND MAIN_SOURCE_FILES
-  )
+	opm/flowdynamicgrid/refinementstrategy.cpp
+)
 
 
 # originally generated with the command:
@@ -45,9 +46,9 @@ list (APPEND  PROGRAM_SOURCE_FILES
  #    examples/flow_test.cpp
  #    examples/flow_test2.cpp
  #    examples/flow_test_2ph.cpp
-    )
+		)
 # originally generated with the command:
 # find opm -name '*.h*' -a ! -name '*-pch.hpp' -printf '\t%p\n' | sort
 list (APPEND PUBLIC_HEADER_FILES
-    #eclproblemsimple.hh
-  )
+		#eclproblemsimple.hh
+	)

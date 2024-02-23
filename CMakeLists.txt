@@ -184,6 +184,7 @@ opm_add_test(flow_gaswater_alugrid_exp
 	LIBRARIES opmsimulators
 	SOURCES
 	tests/flow_gaswater_alugrid_exp.cpp
+	opm/flowdynamicgrid/refinementstrategy.cpp
 	$<TARGET_OBJECTS:moduleVersionExp>)
 target_compile_definitions(flow_gaswater_alugrid_exp PRIVATE USE_ALUGRID)
 

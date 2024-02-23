@@ -94,7 +94,7 @@
 #include <opm/utility/CopyablePtr.hpp>
 
 #include <opm/common/OpmLog/OpmLog.hpp>
-#include "refinementstrategy.hh"
+
 #include <algorithm>
 #include <functional>
 #include <set>
@@ -585,10 +585,6 @@
 // };
 
 // } namespace Opm::Properties
-namespace Opm
-{
-class PropertyTree;
-}
 
 
 namespace Opm {
@@ -600,15 +596,9 @@ namespace Opm {
  *        commercial ECLiPSE simulator.
  */
 template <class TypeTag>
-class EclProblemDynamic : public GetPropType<TypeTag, Properties::BaseProblem>
-                 , public EclGenericProblem<GetPropType<TypeTag, Properties::GridView>,
-                                            GetPropType<TypeTag, Properties::FluidSystem>,
-                                            GetPropType<TypeTag, Properties::Scalar>>
+class EclProblemDynamic : public EclProblem<Typetag>
 {
-    using BaseType = EclGenericProblem<GetPropType<TypeTag, Properties::GridView>,
-                                       GetPropType<TypeTag, Properties::FluidSystem>,
-                                       GetPropType<TypeTag, Properties::Scalar>>;
-    using ParentType = GetPropType<TypeTag, Properties::BaseProblem>;
+    using ParentType = EclProblem<GetPropType<TypeTag>;
     using Implementation = GetPropType<TypeTag, Properties::Problem>;
 
     using Scalar = GetPropType<TypeTag, Properties::Scalar>;
@@ -862,16 +852,6 @@ public:
 
         RelpermDiagnostics relpermDiagnostics;
         relpermDiagnostics.diagnosis(vanguard.eclState(), vanguard.cartesianIndexMapper());
-        std::string filename("refstrat.json");
-        if ( !std::filesystem::exists(filename)){
-             OPM_THROW(std::invalid_argument, "JSON file " + filename + " does not exist.");
-        }
-        PropertyTree prm(filename);
-        std::ostringstream os;
-        os << "Property tree for refinmentstategy:\n";
-        prm.write_json(os, true);
-        refStrat_ = Opm::RefinementStrategy(prm);
-        OpmLog::note(os.str());
     }
 
     /*!
@@ -1036,13 +1016,8 @@ public:
                 container_[elem].pm = sol[elemIdx].primaryVarsMeaningPressure();
                 container_[elem].gm = sol[elemIdx].primaryVarsMeaningGas();
                 container_[elem].bm = sol[elemIdx].primaryVarsMeaningBrine();
-                if(refStrat_.isInitialRefined(container_[elem].preAdaptIndex)){
-                    grid.mark( 1, elem );
-                }
-                if(refStrat_.isInitialCoarsened(container_[elem].preAdaptIndex)){
-                    // not sure if this work set to false for now
-                    grid.mark( -1, elem );
-                }
+
+                grid.mark( 1, elem );
             }
             this->simulator().model().adaptMarkedGrid();
             // simulator.model().adaptManager().adapt()
@@ -1209,13 +1184,13 @@ void fillContainerForGridAdaptation()
                 bool hasSamePrimaryVarsMeaning = (hasSamePrimaryVarsMeaningWater&&hasSamePrimaryVarsMeaningPressure&&hasSamePrimaryVarsMeaningGas&&hasSamePrimaryVarsMeaningBrine);
                 const Scalar indicator =
                     (maxSat - minSat);///(std::max<Scalar>(0.01, maxSat+minSat)/2);
-                if( refStrat_.shouldBeRefined(indicator > 0.3, elem.level()) ) {
+                if( indicator > 0.3 && elem.level() < 2 ) {
                     grid.mark( 1, elem );
                     ++ numMarked;
                     ++ numMarked_refined;
                     //std::cout << "refine cell " << elemIdx << " preadapt " << container_[elem].preAdaptIndex << std::endl;
                 }
-                else if ( refStrat_.shouldBeCoarsened(hasSamePrimaryVarsMeaning,indicator, elem.level() ) )
+                else if ( hasSamePrimaryVarsMeaning && indicator < 0.025 && elem.level() > 0)
                 {
                     grid.mark( -1, elem );
                     //std::cout << "coarse cell " << elemIdx << " preadapt " << container_[elem].preAdaptIndex << std::endl;
@@ -1605,40 +1580,6 @@ RestrictProlongOperator restrictProlongOperator()
         return transmissibilities_.transmissibility(globalCenterElemIdx, globalElemIdx);
     }
 
-    /*!
-     * \copydoc EclTransmissiblity::diffusivity
-     */
-    template <class Context>
-    Scalar diffusivity(const Context& context,
-                       [[maybe_unused]] unsigned fromDofLocalIdx,
-                       unsigned toDofLocalIdx) const
-    {
-        assert(fromDofLocalIdx == 0);
-        return *pffDofData_.get(context.element(), toDofLocalIdx).diffusivity;
-    }
-
-    /*!
-     * give the transmissibility for a face i.e. pair. should be symmetric?
-     */
-    Scalar diffusivity(const unsigned globalCellIn, const unsigned globalCellOut) const{
-        return transmissibilities_.diffusivity(globalCellIn, globalCellOut);
-    }
-
-    /*!
-     * give the dispersivity for a face i.e. pair.
-     */
-    Scalar dispersivity(const unsigned globalCellIn, const unsigned globalCellOut) const{
-        return transmissibilities_.dispersivity(globalCellIn, globalCellOut);
-    }
-
-    /*!
-     * \brief Direct access to a boundary transmissibility.
-     */
-    Scalar thermalTransmissibilityBoundary(const unsigned globalSpaceIdx,
-                                    const unsigned boundaryFaceIdx) const
-    {
-        return transmissibilities_.thermalTransmissibilityBoundary(globalSpaceIdx, boundaryFaceIdx);
-    }
 
 
     /*!
@@ -1653,24 +1594,8 @@ RestrictProlongOperator restrictProlongOperator()
         return transmissibilities_.transmissibilityBoundary(container_[entity].preAdaptIndex, boundaryFaceIdx);
     }
 
-    /*!
-     * \brief Direct access to a boundary transmissibility.
-     */
-    Scalar transmissibilityBoundary(const unsigned globalSpaceIdx,
-                                    const unsigned boundaryFaceIdx) const
-    {
-        return transmissibilities_.transmissibilityBoundary(globalSpaceIdx, boundaryFaceIdx);
-    }
 
 
-    /*!
-     * \copydoc EclTransmissiblity::thermalHalfTransmissibility
-     */
-    Scalar thermalHalfTransmissibility(const unsigned globalSpaceIdxIn,
-                                       const unsigned globalSpaceIdxOut) const
-    {
-        return transmissibilities_.thermalHalfTrans(globalSpaceIdxIn,globalSpaceIdxOut);
-    }
     /*!
      * \copydoc EclTransmissiblity::thermalHalfTransmissibility
      */
@@ -2668,27 +2593,8 @@ RestrictProlongOperator restrictProlongOperator()
         return {bc.bctype, rate};
     }
 
-    const std::unique_ptr<EclWriterType>& eclWriter() const
-    {
-        return eclWriter_;
-    }
 
-    void setConvData(const std::vector<std::vector<int>>& data)
-    {
-        eclWriter_->mutableEclOutputModule().setCnvData(data);
-    }
 
-    template<class Serializer>
-    void serializeOp(Serializer& serializer)
-    {
-        serializer(static_cast<BaseType&>(*this));
-        serializer(drift_);
-        serializer(wellModel_);
-        serializer(aquiferModel_);
-        serializer(tracerModel_);
-        serializer(*materialLawManager_);
-        serializer(*eclWriter_);
-    }
 private:
     Implementation& asImp_()
     { return *static_cast<Implementation *>(this); }
@@ -3967,7 +3873,6 @@ public:
     std::vector<unsigned int> ordering_;
     std::vector<double> orgVolume_;
     int refinedGlobal_;
-    RefinementStrategy refStrat_;
 };
 
 } // namespace Opm

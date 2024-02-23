@@ -45,38 +45,6 @@
 //#include <opm/material/fluidmatrixinteractions/EclMaterialLawManagerTable.hpp>
 namespace Opm{
     template<typename TypeTag>
-    class EclProblemNew: public EclProblem<TypeTag>{
-        using Parent = EclProblem<TypeTag>;
-        using ParentType = GetPropType<TypeTag, Properties::BaseProblem>;
-        using Simulator = GetPropType<TypeTag, Properties::Simulator>;
-        using Evaluation = GetPropType<TypeTag, Properties::Evaluation>;
-        using Indices = GetPropType<TypeTag, Properties::Indices>;
-        static constexpr bool waterEnabled = Indices::waterEnabled;
-        static constexpr bool gasEnabled = Indices::gasEnabled;
-        static constexpr bool oilEnabled = Indices::oilEnabled;
-        using DirectionalMobilityPtr = ::Opm::Utility::CopyablePtr<DirectionalMobility<TypeTag, Evaluation>>;
-        using MaterialLaw = GetPropType<TypeTag, Properties::MaterialLaw>;
-        using FluidSystem = GetPropType<TypeTag, Properties::FluidSystem>;
-        using PrimaryVariables = GetPropType<TypeTag, Properties::PrimaryVariables>;
-        using Grid = GetPropType<TypeTag, Properties::Grid>;
-        using EquilGrid = GetPropType<TypeTag, Properties::EquilGrid>;
-        using CartesianIndexMapper = Dune::CartesianIndexMapper<Grid>;
-        enum { numPhases = FluidSystem::numPhases };
-public:
-        EclProblemNew(Simulator& simulator): EclProblem<TypeTag>(simulator){
-        }
-        //template <class Context, class FluidState>
-       //void updateRelperms( const Context& context,
-      //      std::array<Evaluation,numPhases> &mobility,
-      //      DirectionalMobilityPtr &dirMob,
-     //       FluidState &fluidState,
-     //       unsigned dofIdx, unsigned timeIdx) const
-     //   {
-     //       OPM_TIMEBLOCK_LOCAL(updateRelperms);
-     //       Parent::updateRelperms(context, mobility, dirMob, fluidState, dofIdx, timeIdx);
-     //   };
-    };
-       template<typename TypeTag>
     class BlackOilModelDynamic: public FIBlackOilModel<TypeTag>{
         using Parent = BlackOilModel<TypeTag>;
         using GridView = GetPropType<TypeTag, Properties::GridView>;
@@ -207,7 +175,7 @@ namespace Opm {
 namespace Properties {
 namespace TTag {
 struct EclFlowProblemAlugrid {
-    using InheritsFrom = std::tuple<EclFlowProblem>;
+    using InheritsFrom = std::tuple<FlowProblem>;
 };
 }
  template<class TypeTag>
@@ -255,10 +223,6 @@ struct EclFlowProblemAlugrid {
     struct Vanguard<TypeTag, TTag::EclFlowProblemAlugrid> {
         using type = Opm::EclAluGridVanguard<TypeTag>;
     };
-template<class TypeTag>
-struct EclEnableAquifers<TypeTag, TTag::EclFlowProblemAlugrid> {
-    static constexpr bool value = false;
-};
 
 
     //template<class TypeTag>
@@ -273,6 +237,9 @@ struct LocalLinearizerSplice<TypeTag, TTag::EclFlowProblemAlugrid> { using type 
 // By default, include the intrinsic permeability tensor to the VTK output files
 template<class TypeTag>
 struct VtkWriteIntrinsicPermeabilities<TypeTag, TTag::EclFlowProblemAlugrid> { static constexpr bool value = true; };
+template<class TypeTag>
+struct VtkWriteSaturations<TypeTag, TTag::EclFlowProblemAlugrid> { static constexpr bool value = true; };
+
 
 // enable the storage cache by default for this problem
 template<class TypeTag>
@@ -360,7 +327,7 @@ private:
     // it is unfortunately not possible to simply use 'TypeTag' here because this leads
     // to cyclic definitions of some properties. if this happens the compiler error
     // messages unfortunately are *really* confusing and not really helpful.
-    using BaseTypeTag = TTag::EclFlowProblem;
+    using BaseTypeTag = TTag::FlowProblem;
     using FluidSystem = GetPropType<BaseTypeTag, Properties::FluidSystem>;
 
 public:
