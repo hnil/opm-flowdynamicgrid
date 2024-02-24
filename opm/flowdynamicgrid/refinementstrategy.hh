@@ -11,16 +11,17 @@ namespace Opm{
     public:
         RefinementStrategy(){};
         RefinementStrategy(const Opm::PropertyTree& ptree);
-        bool isInitialRefined(std::size_t initialIdx);
-        bool isInitialCoarsened(std::size_t initialIdx);
+        bool isInitialRefined(std::size_t initialIdx, int level);
+        bool isInitialCoarsened(std::size_t initialIdx, int level);
         bool shouldBeRefined(double indicator,int level);
         bool shouldBeCoarsened(bool hasSamePrimaryVarsMeaning, double indicator,int level);
         const PropertyTree& ptree(){
             return ptree_;
         }
+        int minNumMarked();
     private:
         Opm::PropertyTree ptree_;
-        std::vector<int> intialrefined_;
+        std::vector<double> initind_;
     };
 }
 #endif

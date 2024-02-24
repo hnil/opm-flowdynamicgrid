@@ -1036,10 +1036,10 @@ public:
                 container_[elem].pm = sol[elemIdx].primaryVarsMeaningPressure();
                 container_[elem].gm = sol[elemIdx].primaryVarsMeaningGas();
                 container_[elem].bm = sol[elemIdx].primaryVarsMeaningBrine();
-                if(refStrat_.isInitialRefined(container_[elem].preAdaptIndex)){
+                if(refStrat_.isInitialRefined(container_[elem].preAdaptIndex, elem.level())){
                     grid.mark( 1, elem );
                 }
-                if(refStrat_.isInitialCoarsened(container_[elem].preAdaptIndex)){
+                if(refStrat_.isInitialCoarsened(container_[elem].preAdaptIndex, elem.level())){
                     // not sure if this work set to false for now
                     grid.mark( -1, elem );
                 }
@@ -1230,12 +1230,26 @@ void fillContainerForGridAdaptation()
             }
             }
         }
+
         std::cout << "Num coarsened cell " << numMarked_coarsen << std::endl;
         std::cout << "Num refined cell " << numMarked_refined << std::endl;
         std::cout << "Num marked" << numMarked << std::endl;
         // get global sum so that every proc is on the same page
         numMarked = this->simulator().vanguard().grid().comm().sum( numMarked );
-
+        if(numMarked < refStrat_.minNumMarked()){
+            std::cout << "To few marked" << std::endl;
+            elemIt = gridView.template begin</*codim=*/0, Dune::Interior_Partition>();
+            elemEndIt = gridView.template end</*codim=*/0, Dune::Interior_Partition>();
+            for (; elemIt != elemEndIt; ++elemIt)
+            {
+                const auto& elem = *elemIt;
+                if (elem.partitionType() != Dune::InteriorEntity)
+                    continue;
+                elemCtx.updateAll(elem);
+                grid.mark( 0, elem );
+            }
+            numMarked = 0;
+        }
         return numMarked;
     }
 RestrictProlongOperator restrictProlongOperator()
