@@ -1,14 +1,10 @@
 {
-    "preconditioner": {
-        "type": "ILU0",
-        "relaxation": "1"
-    },
-    "UseInitialFile": true,
+    "UseInitialFile": false,
     "InitIndicatorFile": "gassat.txt",
-    "InitRefIndicator": 0.5,
-    "MinNumMarked": 300,
+    "InitRefIndicator": 0.2,
+    "MinNumMarked": 0,
     "CoarsenIndicator": 0.025,
-    "RefIndicator": 0.3,
+    "RefIndicator": 0.2,
     "MaxLevel": 2,
     "MinLevel": 0,
     "ShouldCoarsen": false

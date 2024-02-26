@@ -694,11 +694,13 @@ class EclProblemDynamic : public GetPropType<TypeTag, Properties::BaseProblem>
     using PressureMeaning = typename PrimaryVariables::PressureMeaning;
     using GasMeaning = typename PrimaryVariables::GasMeaning;
     using BrineMeaning = typename PrimaryVariables::BrineMeaning;
+    using SolventMeaning = typename PrimaryVariables::SolventMeaning;
     enum class PrimaryVarsMeaning {
         WaterMeaning,  //Sw, Rvw, Rsw, disabled; (Water Meaning)
         PressureMeaning, // Po, Pg, Pw, disable; (Pressure Meaning)
         GasMeaning, // Rg, Rs, Rvm disabled; (Gas Meaning)
         BrineMeaning, // Rg, Rs, Rvm disabled; (Brine Meaning)
+        SolventMeaning, // RS, Rsolw, disabled; (Brine Meaning)
         Undef, // The primary variable is not used
      };
 
@@ -707,6 +709,7 @@ class EclProblemDynamic : public GetPropType<TypeTag, Properties::BaseProblem>
                PressureMeaning pm;
                GasMeaning gm;
                BrineMeaning bm;
+               SolventMeaning sm;
                int preAdaptIndex;
          //MaterialLawParams matLawParams;
                bool isCellPerforation;
@@ -1036,6 +1039,7 @@ public:
                 container_[elem].pm = sol[elemIdx].primaryVarsMeaningPressure();
                 container_[elem].gm = sol[elemIdx].primaryVarsMeaningGas();
                 container_[elem].bm = sol[elemIdx].primaryVarsMeaningBrine();
+                container_[elem].sm = sol[elemIdx].primaryVarsMeaningSolvent();
                 if(refStrat_.isInitialRefined(container_[elem].preAdaptIndex, elem.level())){
                     grid.mark( 1, elem );
                 }
@@ -1116,6 +1120,7 @@ void fillContainerForGridAdaptation()
             container_[elem].pm = sol[elemIdx].primaryVarsMeaningPressure();
             container_[elem].gm = sol[elemIdx].primaryVarsMeaningGas();
             container_[elem].bm = sol[elemIdx].primaryVarsMeaningBrine();
+            container_[elem].sm = sol[elemIdx].primaryVarsMeaningSolvent();
             //container_[elem].matLawParams = materialLawParams(elemIdx);
             container_[elem].preAdaptIndex = elemIdx;
             preAdaptGridIndex_[elemIdx]=elemIdx;
@@ -1158,6 +1163,7 @@ void fillContainerForGridAdaptation()
             container_[elem].pm = sol[elemIdx].primaryVarsMeaningPressure();
             container_[elem].gm = sol[elemIdx].primaryVarsMeaningGas();
             container_[elem].bm = sol[elemIdx].primaryVarsMeaningBrine();
+            container_[elem].sm = sol[elemIdx].primaryVarsMeaningSolvent();
             //       container_[elem].matLawParams = materialLawParams(elemIdx);
             //container_[elem].preAdaptIndex = elemIdx;
             //preAdaptGridIndex_[elemIdx]=elemIdx;
@@ -1183,10 +1189,12 @@ void fillContainerForGridAdaptation()
                 bool hasSamePrimaryVarsMeaningPressure = true;
                 bool hasSamePrimaryVarsMeaningGas = true;
                 bool hasSamePrimaryVarsMeaningBrine = true;
+                bool hasSamePrimaryVarsMeaningSolvent = true;
                 const auto& primaryVarsMeaningWaterBase = elemCtx.primaryVars(0, /*timeIdx=*/0 ).primaryVarsMeaningWater();
                 const auto& primaryVarsMeaningPressureBase = elemCtx.primaryVars(0, /*timeIdx=*/0 ).primaryVarsMeaningPressure();
                 const auto& primaryVarsMeaningGasBase = elemCtx.primaryVars(0, /*timeIdx=*/0 ).primaryVarsMeaningGas();
                 const auto& primaryVarsMeaningBrineBase = elemCtx.primaryVars(0, /*timeIdx=*/0 ).primaryVarsMeaningBrine();
+                const auto& primaryVarsMeaningSolventBase = elemCtx.primaryVars(0, /*timeIdx=*/0 ).primaryVarsMeaningSolvent();
 
                 size_t nDofs = elemCtx.numDof(/*timeIdx=*/0);
                 for (unsigned dofIdx = 0; dofIdx < nDofs; ++dofIdx)
@@ -1204,9 +1212,11 @@ void fillContainerForGridAdaptation()
                         hasSamePrimaryVarsMeaningGas = false;
                  if(primaryVarsMeaningBrineBase != elemCtx.primaryVars(dofIdx, /*timeIdx=*/0 ).primaryVarsMeaningBrine())
                         hasSamePrimaryVarsMeaningBrine = false;
+                 if(primaryVarsMeaningSolventBase != elemCtx.primaryVars(dofIdx, /*timeIdx=*/0 ).primaryVarsMeaningSolvent())
+                        hasSamePrimaryVarsMeaningSolvent = false;
                 }
 
-                bool hasSamePrimaryVarsMeaning = (hasSamePrimaryVarsMeaningWater&&hasSamePrimaryVarsMeaningPressure&&hasSamePrimaryVarsMeaningGas&&hasSamePrimaryVarsMeaningBrine);
+                bool hasSamePrimaryVarsMeaning = (hasSamePrimaryVarsMeaningWater&&hasSamePrimaryVarsMeaningPressure&&hasSamePrimaryVarsMeaningGas&&hasSamePrimaryVarsMeaningBrine&&hasSamePrimaryVarsMeaningSolvent);
                 const Scalar indicator =
                     (maxSat - minSat);///(std::max<Scalar>(0.01, maxSat+minSat)/2);
                 if( refStrat_.shouldBeRefined(indicator > 0.3, elem.level()) ) {
@@ -2978,6 +2988,7 @@ protected:
             priVars.setPrimaryVarsMeaningPressure(container_[*it].pm);
             priVars.setPrimaryVarsMeaningGas(container_[*it].gm);
             priVars.setPrimaryVarsMeaningBrine(container_[*it].bm);
+            priVars.setPrimaryVarsMeaningSolvent(container_[*it].sm);
             priVars.setPvtRegionIndex(container_[*it].pvtRegionIdx);
             // MaterialLawParams  mlp = container_[*it].matLawParams;
             // Opm::EnsureFinalized();

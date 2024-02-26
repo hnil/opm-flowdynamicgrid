@@ -38,7 +38,7 @@ namespace Opm{
         if(initind_.size()>0){
             return (initind_[initialIdx] > ptree_.get<double>("InitRefIndicator")) && (level < 3);
         }else{
-            return true && (level < 3);
+            return true && (level < 4);
         }
     }
     bool RefinementStrategy::isInitialCoarsened(size_t initialIdx, int level){
