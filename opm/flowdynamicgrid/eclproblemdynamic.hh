@@ -1219,7 +1219,7 @@ void fillContainerForGridAdaptation()
                 bool hasSamePrimaryVarsMeaning = (hasSamePrimaryVarsMeaningWater&&hasSamePrimaryVarsMeaningPressure&&hasSamePrimaryVarsMeaningGas&&hasSamePrimaryVarsMeaningBrine&&hasSamePrimaryVarsMeaningSolvent);
                 const Scalar indicator =
                     (maxSat - minSat);///(std::max<Scalar>(0.01, maxSat+minSat)/2);
-                if( refStrat_.shouldBeRefined(indicator > 0.3, elem.level()) ) {
+                if( refStrat_.shouldBeRefined(indicator , elem.level()) ) {
                     grid.mark( 1, elem );
                     ++ numMarked;
                     ++ numMarked_refined;
