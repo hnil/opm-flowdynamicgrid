@@ -208,7 +208,7 @@ namespace Opm {
 namespace Properties {
 namespace TTag {
 struct EclFlowProblemAlugrid {
-    using InheritsFrom = std::tuple<EclFlowProblem>;
+    using InheritsFrom = std::tuple<FlowProblem>;
 };
 }
  template<class TypeTag>
@@ -254,10 +254,10 @@ struct EclFlowProblemAlugrid {
     struct Vanguard<TypeTag, TTag::EclFlowProblemAlugrid> {
         using type = Opm::EclAluGridVanguard<TypeTag>;
     };
-template<class TypeTag>
-struct EclEnableAquifers<TypeTag, TTag::EclFlowProblemAlugrid> {
-    static constexpr bool value = false;
-};
+// template<class TypeTag>
+// struct EclEnableAquifers<TypeTag, TTag::EclFlowProblemAlugrid> {
+//     static constexpr bool value = false;
+// };
 //template<class TypeTag>
  //   struct IntensiveQuantities<TypeTag, TTag::EclFlowProblemAlugrid> {
 //    using type = BlackOilIntensiveQuantitiesSimple<TypeTag>;

@@ -25,7 +25,7 @@ namespace Opm{
     }
 
     bool RefinementStrategy::shouldBeRefined(double indicator,int level){
-        return (indicator > ptree_.get<double>("RefIndicator")) && (level < std::min(ptree_.get<int>("MaxLevel"),3));
+        return (indicator > ptree_.get<double>("RefIndicator")) && (level < std::min(ptree_.get<int>("MaxLevel"),5));
     }
     bool RefinementStrategy::shouldBeCoarsened(bool hasSamePrimaryVarsMeaning, double indicator,int level){
         if(ptree_.get<bool>("ShouldCoarsen")){

@@ -84,10 +84,11 @@ public:
         using ParentType = GetPropType<TypeTag, Properties::DiscIntensiveQuantities>;
         using ElementIterator = typename GridView::template Codim<0>::Iterator;
         using Simulator = GetPropType<TypeTag, Properties::Simulator>;
+       public:
         using FluidSystem = GetPropType<TypeTag, Properties::FluidSystem>;
         using IntensiveQuantities = GetPropType<TypeTag, Properties::IntensiveQuantities>;
-
         using Indices = GetPropType<TypeTag, Properties::Indices>;
+       private:
         using Scalar = GetPropType<TypeTag, Properties::Scalar>;
         static constexpr int numEq = Indices::numEq;
         using VectorBlockType = Dune::FieldVector<Scalar, numEq>;
@@ -205,7 +206,7 @@ namespace Opm {
 namespace Properties {
 namespace TTag {
 struct EclFlowProblemAlugrid {
-    using InheritsFrom = std::tuple<EclFlowProblem>;
+    using InheritsFrom = std::tuple<FlowProblem>;
 };
 }
  template<class TypeTag>
@@ -247,10 +248,10 @@ struct EclFlowProblemAlugrid {
     struct Vanguard<TypeTag, TTag::EclFlowProblemAlugrid> {
         using type = Opm::EclAluGridVanguard<TypeTag>;
     };
-    template<class TypeTag>
-    struct EclEnableAquifers<TypeTag, TTag::EclFlowProblemAlugrid> {
-    static constexpr bool value = false;
-    };
+    // template<class TypeTag>
+    // struct EclEnableAquifers<TypeTag, TTag::EclFlowProblemAlugrid> {
+    // static constexpr bool value = false;
+    // };
     template<class TypeTag>
     struct MaterialLaw<TypeTag, TTag::EclFlowProblemAlugrid>
     {
@@ -276,7 +277,7 @@ struct EclFlowProblemAlugrid {
         // it is unfortunately not possible to simply use 'TypeTag' here because this leads
         // to cyclic definitions of some properties. if this happens the compiler error
         // messages unfortunately are *really* confusing and not really helpful.
-        using BaseTypeTag = TTag::EclFlowProblem;
+        using BaseTypeTag = TTag::FlowProblem;
         using FluidSystem = GetPropType<BaseTypeTag, Properties::FluidSystem>;
 
     public:
